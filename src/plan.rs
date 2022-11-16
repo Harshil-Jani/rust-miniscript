@@ -215,6 +215,30 @@ where
     }
 }
 
+/// Enum defining the type of signature required
+#[derive(Debug, Clone)]
+pub enum RequiredSig<'pk, Pk: MiniscriptKey> {
+    /// ECDSA (legacy or Segwit-v0) signature
+    Ecdsa(&'pk Pk),
+    /// Schnorr key-spend signature (BIP-341)
+    SchnorrTapKey(&'pk Pk),
+    /// Schnorr script-spend signature (BIP-341)
+    SchnorrTapScript(&'pk Pk, &'pk TapLeafHash),
+}
+
+/// Enum defining the type of preimage required
+#[derive(Debug, Clone)]
+pub enum RequiredPreimage<'h, Pk: MiniscriptKey> {
+    /// HASH160 preimage
+    Hash160(&'h <Pk as MiniscriptKey>::Hash160),
+    /// RIPEMD160 preimage
+    Ripemd160(&'h <Pk as MiniscriptKey>::Ripemd160),
+    /// HASH256 preimage
+    Hash256(&'h <Pk as MiniscriptKey>::Hash256),
+    /// SHA256 preimage
+    Sha256(&'h <Pk as MiniscriptKey>::Sha256),
+}
+
 /// Representation of a particular spending path on a descriptor. Contains the witness template
 /// and the timelocks needed for satisfying the plan.
 /// Calling `get_plan` on a Descriptor will return this structure,

@@ -17,7 +17,7 @@ use sync::Arc;
 
 use super::context::SigType;
 use crate::descriptor::DescriptorType;
-use crate::plan::{AssetProvider, Plan};
+use crate::plan::{AssetProvider, Plan, RequiredPreimage, RequiredSig};
 use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
@@ -709,6 +709,35 @@ impl<Pk: MiniscriptKey + ToPublicKey> WitnessTemplate<Placeholder<Pk>> {
                 .map(PartialSatisfaction::Placeholder)
                 .collect(),
         }
+    }
+
+    /// Returns the list of required signatures
+    pub fn required_signatures(&self) -> Vec<RequiredSig<'_, Pk>> {
+        self.stack
+            .iter()
+            .filter_map(|item| match item {
+                Placeholder::EcdsaSigPk(pk) => Some(RequiredSig::Ecdsa(pk)),
+                Placeholder::SchnorrSig(pk, None) => Some(RequiredSig::SchnorrTapKey(pk)),
+                Placeholder::SchnorrSig(pk, Some(lh)) => {
+                    Some(RequiredSig::SchnorrTapScript(pk, lh))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Returns the list of required preimages
+    pub fn required_preimages(&self) -> Vec<RequiredPreimage<'_, Pk>> {
+        self.stack
+            .iter()
+            .filter_map(|item| match item {
+                Placeholder::Sha256Preimage(h) => Some(RequiredPreimage::Sha256(h)),
+                Placeholder::Hash256Preimage(h) => Some(RequiredPreimage::Hash256(h)),
+                Placeholder::Ripemd160Preimage(h) => Some(RequiredPreimage::Ripemd160(h)),
+                Placeholder::Hash160Preimage(h) => Some(RequiredPreimage::Hash160(h)),
+                _ => None,
+            })
+            .collect()
     }
 }
 
