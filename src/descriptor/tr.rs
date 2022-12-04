@@ -15,7 +15,9 @@ use sync::Arc;
 use super::checksum::{self, verify_checksum};
 use crate::descriptor::{DefiniteDescriptorKey, DescriptorType};
 use crate::expression::{self, FromTree};
-use crate::miniscript::satisfy::{Placeholder, Satisfaction, Witness, WitnessTemplate};
+use crate::miniscript::satisfy::{
+    Placeholder, Satisfaction, SchnorrSigType, Witness, WitnessTemplate,
+};
 use crate::miniscript::Miniscript;
 use crate::plan::{AssetProvider, Plan};
 use crate::policy::semantic::Policy;
@@ -706,11 +708,14 @@ where
 {
     let spend_info = desc.spend_info();
     // First try the key spend path
-    if provider.lookup_tap_key_spend_sig(&desc.internal_key) {
+    if let Some(size) = provider.lookup_tap_key_spend_sig(&desc.internal_key) {
         Satisfaction {
             stack: Witness::Stack(vec![Placeholder::SchnorrSig(
                 desc.internal_key.clone(),
-                None,
+                SchnorrSigType::KeySpend {
+                    merkle_root: spend_info.merkle_root(),
+                },
+                size,
             )]),
             has_sig: true,
             absolute_timelock: None,

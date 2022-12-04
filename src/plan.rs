@@ -56,14 +56,15 @@ pub trait AssetProvider<Pk: MiniscriptKey> {
         false
     }
 
-    /// Lookup the tap key spend sig
-    fn lookup_tap_key_spend_sig(&self, _: &Pk) -> bool {
-        false
+    /// Lookup the tap key spend sig and return its size
+    fn lookup_tap_key_spend_sig(&self, _: &Pk) -> Option<usize> {
+        None
     }
 
     /// Given a public key and a associated leaf hash, look up an schnorr signature with that key
-    fn lookup_tap_leaf_script_sig(&self, _: &Pk, _: &TapLeafHash) -> bool {
-        false
+    /// and return its size
+    fn lookup_tap_leaf_script_sig(&self, _: &Pk, _: &TapLeafHash) -> Option<usize> {
+        None
     }
 
     /// Given a raw `Pkh`, lookup corresponding `Pk`. If present, return its lenght.
@@ -89,8 +90,13 @@ pub trait AssetProvider<Pk: MiniscriptKey> {
     /// Even if signatures for public key Hashes are not available, the users
     /// can use this map to provide pkh -> pk mapping which can be useful
     /// for dissatisfying pkh.
-    fn lookup_raw_pkh_tap_leaf_script_sig(&self, _: &(hash160::Hash, TapLeafHash)) -> bool {
-        false
+    ///
+    /// Returns the signature size if present
+    fn lookup_raw_pkh_tap_leaf_script_sig(
+        &self,
+        _: &(hash160::Hash, TapLeafHash),
+    ) -> Option<usize> {
+        None
     }
 
     /// Given a SHA256 hash, look up its preimage
@@ -143,12 +149,12 @@ macro_rules! impl_log_method {
 #[cfg(feature = "std")]
 impl AssetProvider<DefiniteDescriptorKey> for LoggerAssetProvider {
     impl_log_method!(lookup_ecdsa_sig, pk: &DefiniteDescriptorKey, -> bool);
-    impl_log_method!(lookup_tap_key_spend_sig, pk: &DefiniteDescriptorKey, -> bool);
-    impl_log_method!(lookup_tap_leaf_script_sig, pk: &DefiniteDescriptorKey, leaf_hash: &TapLeafHash, -> bool);
+    impl_log_method!(lookup_tap_key_spend_sig, pk: &DefiniteDescriptorKey, -> Option<usize>);
+    impl_log_method!(lookup_tap_leaf_script_sig, pk: &DefiniteDescriptorKey, leaf_hash: &TapLeafHash, -> Option<usize>);
     impl_log_method!(lookup_raw_pkh_pk, <Ctx: ScriptContext> hash: &hash160::Hash, -> Option<usize>);
     impl_log_method!(lookup_raw_pkh_x_only_pk, hash: &hash160::Hash, -> bool);
     impl_log_method!(lookup_raw_pkh_ecdsa_sig, <Ctx: ScriptContext> hash: &hash160::Hash, -> Option<usize>);
-    impl_log_method!(lookup_raw_pkh_tap_leaf_script_sig, hash: &(hash160::Hash, TapLeafHash), -> bool);
+    impl_log_method!(lookup_raw_pkh_tap_leaf_script_sig, hash: &(hash160::Hash, TapLeafHash), -> Option<usize>);
     impl_log_method!(lookup_sha256, hash: &sha256::Hash, -> bool);
     impl_log_method!(lookup_hash256, hash: &hash256::Hash, -> bool);
     impl_log_method!(lookup_ripemd160, hash: &ripemd160::Hash, -> bool);
@@ -166,12 +172,12 @@ where
         Satisfier::lookup_ecdsa_sig(self, pk).is_some()
     }
 
-    fn lookup_tap_key_spend_sig(&self, _: &Pk) -> bool {
-        Satisfier::lookup_tap_key_spend_sig(self).is_some()
+    fn lookup_tap_key_spend_sig(&self, _: &Pk) -> Option<usize> {
+        Satisfier::lookup_tap_key_spend_sig(self).map(|s| s.to_vec().len())
     }
 
-    fn lookup_tap_leaf_script_sig(&self, pk: &Pk, leaf_hash: &TapLeafHash) -> bool {
-        Satisfier::lookup_tap_leaf_script_sig(self, pk, leaf_hash).is_some()
+    fn lookup_tap_leaf_script_sig(&self, pk: &Pk, leaf_hash: &TapLeafHash) -> Option<usize> {
+        Satisfier::lookup_tap_leaf_script_sig(self, pk, leaf_hash).map(|s| s.to_vec().len())
     }
 
     fn lookup_raw_pkh_pk<Ctx: ScriptContext>(&self, hash: &hash160::Hash) -> Option<usize> {
@@ -186,8 +192,11 @@ where
         Satisfier::lookup_raw_pkh_ecdsa_sig(self, hash).map(|(p, _)| Ctx::pk_len(&p))
     }
 
-    fn lookup_raw_pkh_tap_leaf_script_sig(&self, hash: &(hash160::Hash, TapLeafHash)) -> bool {
-        Satisfier::lookup_raw_pkh_tap_leaf_script_sig(self, hash).is_some()
+    fn lookup_raw_pkh_tap_leaf_script_sig(
+        &self,
+        hash: &(hash160::Hash, TapLeafHash),
+    ) -> Option<usize> {
+        Satisfier::lookup_raw_pkh_tap_leaf_script_sig(self, hash).map(|(_, s)| s.to_vec().len())
     }
 
     fn lookup_sha256(&self, hash: &Pk::Sha256) -> bool {
@@ -294,13 +303,88 @@ impl Plan {
     }
 }
 
+#[derive(Debug)]
+/// Signatures which a key can produce
+///
+/// Defaults to `ecdsa=true` and `taproot=TaprootCanSign::default()`
+pub struct CanSign {
+    /// Whether the key can produce ECDSA signatures
+    ecdsa: bool,
+    /// Whether the key can produce taproot (Schnorr) signatures
+    taproot: TaprootCanSign,
+}
+
+impl Default for CanSign {
+    fn default() -> Self {
+        CanSign {
+            ecdsa: true,
+            taproot: TaprootCanSign::default(),
+        }
+    }
+}
+
+#[derive(Debug)]
+/// Signatures which a taproot key can produce
+///
+/// Defaults to `key_spend=true`, `script_spend=Any` and `sighash_default=true`
+pub struct TaprootCanSign {
+    /// Can produce key spend signatures
+    key_spend: bool,
+    /// Can produce script spend signatures
+    script_spend: TaprootAvailableLeaves,
+    /// Whether `SIGHASH_DEFAULT` will be used to sign
+    sighash_default: bool,
+}
+
+impl TaprootCanSign {
+    fn sig_len(&self) -> usize {
+        match self.sighash_default {
+            true => 64,
+            false => 65,
+        }
+    }
+}
+
+impl Default for TaprootCanSign {
+    fn default() -> Self {
+        TaprootCanSign {
+            key_spend: true,
+            script_spend: TaprootAvailableLeaves::Any,
+            sighash_default: true,
+        }
+    }
+}
+
+#[derive(Debug)]
+/// Which taproot leaves the key can sign for
+pub enum TaprootAvailableLeaves {
+    /// Cannot sign for any leaf
+    None,
+    /// Can sign for any leaf
+    Any,
+    /// Can sign only for a specific leaf
+    Single(TapLeafHash),
+    /// Can sign for multiple leaves
+    Many(HashSet<TapLeafHash>),
+}
+
+impl TaprootAvailableLeaves {
+    fn is_available(&self, lh: &TapLeafHash) -> bool {
+        use TaprootAvailableLeaves::*;
+
+        match self {
+            None => false,
+            Any => true,
+            Single(v) => v == lh,
+            Many(set) => set.contains(lh),
+        }
+    }
+}
+
 /// The Assets we can use to satisfy a particular spending path
 #[derive(Debug, Default)]
 pub struct Assets {
-    keys: HashMap<hash160::Hash, DescriptorPublicKey>,
-    tap_key_spend_sig: Option<bitcoin::SchnorrSig>,
-    ecdsa_signatures: HashMap<DescriptorPublicKey, (bitcoin::EcdsaSig, usize)>,
-    schnorr_signatures: HashMap<(DescriptorPublicKey, TapLeafHash), (bitcoin::SchnorrSig, usize)>,
+    keys: HashMap<hash160::Hash, (DescriptorPublicKey, CanSign)>,
     sha256_preimages: HashSet<sha256::Hash>,
     hash256_preimages: HashSet<hash256::Hash>,
     ripemd160_preimages: HashSet<ripemd160::Hash>,
@@ -310,57 +394,83 @@ pub struct Assets {
 }
 
 impl Assets {
-    pub(crate) fn has_key(&self, pk: &DefiniteDescriptorKey) -> bool {
-        self.keys.values().any(|k| k.is_parent(pk).is_some())
+    pub(crate) fn has_ecdsa_key(&self, pk: &DefiniteDescriptorKey) -> bool {
+        self.keys
+            .values()
+            .any(|(key, can_sign)| can_sign.ecdsa && key.is_parent(pk).is_some())
     }
 
-    pub(crate) fn has_ecdsa_sig(&self, pk: &DefiniteDescriptorKey) -> bool {
-        self.ecdsa_signatures
-            .keys()
-            .any(|k| k.is_parent(pk).is_some())
+    pub(crate) fn has_taproot_internal_key(&self, pk: &DefiniteDescriptorKey) -> Option<usize> {
+        self.keys.values().find_map(|(key, can_sign)| {
+            if !can_sign.taproot.key_spend || !key.is_parent(pk).is_some() {
+                None
+            } else {
+                Some(can_sign.taproot.sig_len())
+            }
+        })
     }
 
-    pub(crate) fn has_schnorr_sig(
+    pub(crate) fn has_taproot_script_key(
         &self,
         pk: &DefiniteDescriptorKey,
         tap_leaf_hash: &TapLeafHash,
-    ) -> bool {
-        self.schnorr_signatures
-            .keys()
-            .any(|(k, lh)| tap_leaf_hash == lh && k.is_parent(pk).is_some())
+    ) -> Option<usize> {
+        self.keys.values().find_map(|(key, can_sign)| {
+            if !can_sign.taproot.script_spend.is_available(tap_leaf_hash)
+                || !key.is_parent(pk).is_some()
+            {
+                None
+            } else {
+                Some(can_sign.taproot.sig_len())
+            }
+        })
+    }
+
+    pub(crate) fn has_taproot_script_key_hash(
+        &self,
+        key: &hash160::Hash,
+        tap_leaf_hash: &TapLeafHash,
+    ) -> Option<usize> {
+        self.keys.get(key).and_then(|(_, can_sign)| {
+            if !can_sign.taproot.script_spend.is_available(tap_leaf_hash) {
+                None
+            } else {
+                Some(can_sign.taproot.sig_len())
+            }
+        })
     }
 }
 
 impl AssetProvider<DefiniteDescriptorKey> for Assets {
     fn lookup_ecdsa_sig(&self, pk: &DefiniteDescriptorKey) -> bool {
-        // Either we have the key to produce the signature, or we already have the signature itself
-        self.has_key(pk) || self.has_ecdsa_sig(pk)
+        self.has_ecdsa_key(pk)
     }
 
-    fn lookup_tap_key_spend_sig(&self, pk: &DefiniteDescriptorKey) -> bool {
-        // Either we have the key to produce the signature, or we already have the signature itself
-        self.has_key(pk) || self.tap_key_spend_sig.is_some()
+    fn lookup_tap_key_spend_sig(&self, pk: &DefiniteDescriptorKey) -> Option<usize> {
+        self.has_taproot_internal_key(pk)
     }
 
     fn lookup_tap_leaf_script_sig(
         &self,
         pk: &DefiniteDescriptorKey,
         tap_leaf_hash: &TapLeafHash,
-    ) -> bool {
-        // Either we have the key to produce the signature, or we already have the signature itself
-        self.has_key(pk) || self.has_schnorr_sig(pk, tap_leaf_hash)
+    ) -> Option<usize> {
+        self.has_taproot_script_key(pk, tap_leaf_hash)
     }
 
     fn lookup_raw_pkh_pk<Ctx: ScriptContext>(&self, hash: &hash160::Hash) -> Option<usize> {
-        self.keys.get(hash).map(|p| Ctx::pk_len(p))
+        self.keys.get(hash).map(|(pk, _)| Ctx::pk_len(pk))
     }
 
     fn lookup_raw_pkh_ecdsa_sig<Ctx: ScriptContext>(&self, hash: &hash160::Hash) -> Option<usize> {
-        self.keys.get(hash).map(|p| Ctx::pk_len(p))
+        self.keys.get(hash).map(|(pk, _)| Ctx::pk_len(pk))
     }
 
-    fn lookup_raw_pkh_tap_leaf_script_sig(&self, hash: &(hash160::Hash, TapLeafHash)) -> bool {
-        self.keys.get(&hash.0).is_some()
+    fn lookup_raw_pkh_tap_leaf_script_sig(
+        &self,
+        (key, lh): &(hash160::Hash, TapLeafHash),
+    ) -> Option<usize> {
+        self.has_taproot_script_key_hash(key, lh)
     }
 
     fn lookup_sha256(&self, hash: &sha256::Hash) -> bool {
@@ -409,7 +519,7 @@ impl FromIterator<DescriptorPublicKey> for Assets {
                         pk.clone()
                             .at_derivation_index(0)
                             .to_pubkeyhash(SigType::Ecdsa),
-                        pk,
+                        (pk, CanSign::default()),
                     )
                 })
                 .collect(),
@@ -510,9 +620,6 @@ impl Assets {
 
     fn append(&mut self, b: Self) {
         self.keys.extend(b.keys.into_iter());
-        self.ecdsa_signatures.extend(b.ecdsa_signatures.into_iter());
-        self.schnorr_signatures
-            .extend(b.schnorr_signatures.into_iter());
         self.sha256_preimages.extend(b.sha256_preimages.into_iter());
         self.hash256_preimages
             .extend(b.hash256_preimages.into_iter());
@@ -521,7 +628,6 @@ impl Assets {
         self.hash160_preimages
             .extend(b.hash160_preimages.into_iter());
 
-        self.tap_key_spend_sig = b.tap_key_spend_sig.or(self.tap_key_spend_sig);
         self.relative_timelock = b.relative_timelock.or(self.relative_timelock);
         self.absolute_timelock = b.absolute_timelock.or(self.absolute_timelock);
     }
@@ -768,26 +874,26 @@ mod test {
             keys[0], keys[1], keys[2], keys[3], keys[4]
         );
 
-        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 65 (sig)
-        let internal_key_sat_weight = Some(71);
-        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 65 (sig)
+        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 64 (sig)
+        let internal_key_sat_weight = Some(70);
+        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 64 (sig)
         // + 34 [script: 1 (OP_PUSHBYTES_32) + 32 (key) + 1 (OP_CHECKSIG)]
         // + 65 [control block: 1 (control byte) + 32 (internal key) + 32 (hash BC)]
-        let first_leaf_sat_weight = Some(170);
-        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 65 (sig)
+        let first_leaf_sat_weight = Some(169);
+        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 64 (sig)
         // + 1 (OP_ZERO)
         // + 70 [script: 1 (OP_PUSHBYTES_32) + 32 (key) + 1 (OP_CHECKSIG)
         //       + 1 (OP_PUSHBYTES_32) + 32 (key) + 1 (OP_CHECKSIGADD)
         //       + 1 (OP_PUSHNUM1) + 1 (OP_NUMEQUAL)]
         // + 97 [control block: 1 (control byte) + 32 (internal key) + 32 (hash C) + 32 (hash
         //       A)]
-        let second_leaf_sat_weight = Some(239);
-        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 65 (sig)
+        let second_leaf_sat_weight = Some(238);
+        // expected weight: 4 (scriptSig len) + 1 (witness len) + 1 (OP_PUSH) + 64 (sig)
         // + 36 [script: 1 (OP_PUSHBYTES_32) + 32 (key) + 1 (OP_CHECKSIGVERIFY)
         //       + 1 (OP_PUSHNUM_10) + 1 (OP_CLTV)]
         // + 97 [control block: 1 (control byte) + 32 (internal key) + 32 (hash B) + 32 (hash
         //       A)]
-        let third_leaf_sat_weight = Some(204);
+        let third_leaf_sat_weight = Some(203);
 
         let tests = vec![
             // Don't give assets

@@ -11,13 +11,13 @@ use core::{cmp, fmt, i64, mem};
 
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::XOnlyPublicKey;
-use bitcoin::util::taproot::{ControlBlock, LeafVersion, TapLeafHash};
+use bitcoin::util::taproot::{ControlBlock, LeafVersion, TapBranchHash, TapLeafHash};
 use bitcoin::{LockTime, PackedLockTime, Script, Sequence};
 use sync::Arc;
 
 use super::context::SigType;
 use crate::descriptor::DescriptorType;
-use crate::plan::{AssetProvider, Plan, RequiredPreimage, RequiredSig};
+use crate::plan::{AssetProvider, Plan};
 use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
@@ -520,6 +520,21 @@ impl_tuple_satisfier!(A, B, C, D, E, F, G);
 impl_tuple_satisfier!(A, B, C, D, E, F, G, H);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Type of schnorr signature to produce
+pub enum SchnorrSigType {
+    /// Key spend signature
+    KeySpend {
+        /// Merkle root to tweak the key, if present
+        merkle_root: Option<TapBranchHash>,
+    },
+    /// Script spend signature
+    ScriptSpend {
+        /// Leaf hash of the script
+        leaf_hash: TapLeafHash,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// Placeholder for some data in a [`WitnessTemplate`]
 pub enum Placeholder<Pk: MiniscriptKey> {
     /// Public key and its size
@@ -530,10 +545,10 @@ pub enum Placeholder<Pk: MiniscriptKey> {
     EcdsaSigPk(Pk),
     /// ECDSA signature given the pubkey hash
     EcdsaSigHash(hash160::Hash),
-    /// Schnorr signature
-    SchnorrSig(Pk, Option<TapLeafHash>),
-    /// Schnorr signature given the pubkey hash and the leaf hash
-    SchnorrSigHash(hash160::Hash, TapLeafHash),
+    /// Schnorr signature and its size
+    SchnorrSig(Pk, SchnorrSigType, usize),
+    /// Schnorr signature given the pubkey hash and the leaf hash, plus its size
+    SchnorrSigHash(hash160::Hash, TapLeafHash, usize),
     /// SHA-256 preimage
     Sha256Preimage(Pk::Sha256),
     /// HASH256 preimage
@@ -564,12 +579,16 @@ impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
             PubkeyHash(pkh, size) => write!(f, "PubkeyHash(pkh: {}, size: {})", pkh, size),
             EcdsaSigPk(pk) => write!(f, "EcdsaSigPk(pk: {})", pk),
             EcdsaSigHash(hash) => write!(f, "EcdsaSigHash(hash: {})", hash),
-            SchnorrSig(pk, tap_leaf_hash) => write!(
+            SchnorrSig(pk, tap_leaf_hash, size) => write!(
                 f,
-                "SchnorrSig(pk: {}, tap_leaf_hash: {:?})",
-                pk, tap_leaf_hash
+                "SchnorrSig(pk: {}, tap_leaf_hash: {:?}, size: {})",
+                pk, tap_leaf_hash, size
             ),
-            SchnorrSigHash(pkh, lh) => write!(f, "SchnorrSigHash(pkh: {}, leaf_hash: {})", pkh, lh),
+            SchnorrSigHash(pkh, lh, size) => write!(
+                f,
+                "SchnorrSigHash(pkh: {}, leaf_hash: {}, size: {})",
+                pkh, lh, size
+            ),
             Sha256Preimage(hash) => write!(f, "Sha256Preimage(hash: {})", hash),
             Hash256Preimage(hash) => write!(f, "Hash256Preimage(hash: {})", hash),
             Ripemd160Preimage(hash) => write!(f, "Ripemd160Preimage(hash: {})", hash),
@@ -601,8 +620,8 @@ impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
                 .or(sat.lookup_raw_pkh_ecdsa_sig(pkh).map(|(p, _)| p))
                 .map(|pk| {
                     let pk = pk.to_bytes();
-                    // We have to add a 1-byte OP_PUSH
-                    debug_assert!(1 + pk.len() == *size);
+                    // Need to add +1 because the size in the placeholder also accounts for the OP_PUSH
+                    debug_assert!(pk.len() + 1 == *size);
                     pk
                 }),
             Placeholder::Hash256Preimage(h) => sat.lookup_hash256(h).map(|p| p.to_vec()),
@@ -613,13 +632,26 @@ impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
             Placeholder::EcdsaSigHash(pkh) => {
                 sat.lookup_raw_pkh_ecdsa_sig(pkh).map(|(_, s)| s.to_vec())
             }
-            Placeholder::SchnorrSig(pk, Some(leaf_hash)) => sat
+            Placeholder::SchnorrSig(pk, SchnorrSigType::ScriptSpend { leaf_hash }, size) => sat
                 .lookup_tap_leaf_script_sig(pk, leaf_hash)
-                .map(|s| s.to_vec()),
-            Placeholder::SchnorrSigHash(pkh, lh) => sat
+                .map(|s| s.to_vec())
+                .map(|s| {
+                    debug_assert!(s.len() == *size);
+                    s
+                }),
+            Placeholder::SchnorrSigHash(pkh, lh, size) => sat
                 .lookup_raw_pkh_tap_leaf_script_sig(&(*pkh, *lh))
-                .map(|(_, s)| s.to_vec()),
-            Placeholder::SchnorrSig(_, _) => sat.lookup_tap_key_spend_sig().map(|s| s.to_vec()),
+                .map(|(_, s)| s.to_vec())
+                .map(|s| {
+                    debug_assert!(s.len() == *size);
+                    s
+                }),
+            Placeholder::SchnorrSig(_, _, size) => {
+                sat.lookup_tap_key_spend_sig().map(|s| s.to_vec()).map(|s| {
+                    debug_assert!(s.len() == *size);
+                    s
+                })
+            }
             Placeholder::HashDissatisfaction => Some(vec![0; 32]),
             Placeholder::PushZero => Some(vec![]),
             Placeholder::PushOne => Some(vec![1]),
@@ -640,29 +672,6 @@ pub enum Witness<T> {
     /// No third party can produce a satisfaction without private key
     /// Witness Impossible
     Impossible,
-}
-
-/// Enum for partially satisfied witness templates
-pub enum PartialSatisfaction<Pk: MiniscriptKey> {
-    /// Placeholder item (not yet satisfied)
-    Placeholder(Placeholder<Pk>),
-    /// Actual data
-    Data(Vec<u8>),
-}
-
-impl<Pk: MiniscriptKey> PartialSatisfaction<Pk> {
-    /// Whether the item is a placeholder
-    pub fn is_placeholder(&self) -> bool {
-        match &self {
-            PartialSatisfaction::Placeholder(_) => true,
-            _ => false,
-        }
-    }
-
-    /// Whether the item is data
-    pub fn is_data(&self) -> bool {
-        !self.is_placeholder()
-    }
 }
 
 /// Template of a witness being constructed interactively
@@ -698,91 +707,6 @@ impl<Pk: MiniscriptKey + ToPublicKey> WitnessTemplate<Placeholder<Pk>> {
             .collect::<Option<_>>()?;
 
         Some(stack)
-    }
-
-    /// Being an interactive satisfaction session
-    pub fn interactive_satisfaction(self) -> WitnessTemplate<PartialSatisfaction<Pk>> {
-        WitnessTemplate {
-            stack: self
-                .stack
-                .into_iter()
-                .map(PartialSatisfaction::Placeholder)
-                .collect(),
-        }
-    }
-
-    /// Returns the list of required signatures
-    pub fn required_signatures(&self) -> Vec<RequiredSig<'_, Pk>> {
-        self.stack
-            .iter()
-            .filter_map(|item| match item {
-                Placeholder::EcdsaSigPk(pk) => Some(RequiredSig::Ecdsa(pk)),
-                Placeholder::SchnorrSig(pk, None) => Some(RequiredSig::SchnorrTapKey(pk)),
-                Placeholder::SchnorrSig(pk, Some(lh)) => {
-                    Some(RequiredSig::SchnorrTapScript(pk, lh))
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Returns the list of required preimages
-    pub fn required_preimages(&self) -> Vec<RequiredPreimage<'_, Pk>> {
-        self.stack
-            .iter()
-            .filter_map(|item| match item {
-                Placeholder::Sha256Preimage(h) => Some(RequiredPreimage::Sha256(h)),
-                Placeholder::Hash256Preimage(h) => Some(RequiredPreimage::Hash256(h)),
-                Placeholder::Ripemd160Preimage(h) => Some(RequiredPreimage::Ripemd160(h)),
-                Placeholder::Hash160Preimage(h) => Some(RequiredPreimage::Hash160(h)),
-                _ => None,
-            })
-            .collect()
-    }
-}
-
-impl<Pk: MiniscriptKey + ToPublicKey> WitnessTemplate<PartialSatisfaction<Pk>> {
-    /// Apply the items needed from a satisfier
-    ///
-    /// Returns the completed witness if all the placeholders have been filled, or `Err` with itself a list of missing
-    /// items otherwise.
-    pub fn apply<Sat: Satisfier<Pk>>(
-        self,
-        stfr: &Sat,
-    ) -> Result<Vec<Vec<u8>>, (Self, Vec<Placeholder<Pk>>)> {
-        let mut unsatisfied = vec![];
-
-        let stack = self
-            .stack
-            .into_iter()
-            .map(|ps| {
-                let placeholder = match &ps {
-                    PartialSatisfaction::Placeholder(p) => p,
-                    PartialSatisfaction::Data(_) => return ps,
-                };
-
-                if let Some(data) = placeholder.satisfy_self(stfr) {
-                    return PartialSatisfaction::Data(data);
-                }
-
-                unsatisfied.push(placeholder.clone());
-                ps
-            })
-            .collect::<Vec<_>>();
-
-        if unsatisfied.is_empty() {
-            Ok(stack
-                .into_iter()
-                .map(|ps| match ps {
-                    PartialSatisfaction::Data(d) => d,
-                    PartialSatisfaction::Placeholder(_) => {
-                        unreachable!("there shouldn't be any placeholder left")
-                    }
-                })
-                .collect())
-        } else {
-            Err((WitnessTemplate { stack }, unsatisfied))
-        }
     }
 }
 
@@ -827,10 +751,13 @@ impl<Pk: MiniscriptKey + ToPublicKey> Witness<Placeholder<Pk>> {
                 }
             }
             super::context::SigType::Schnorr => {
-                if sat.lookup_tap_leaf_script_sig(pk, leaf_hash) {
+                if let Some(size) = sat.lookup_tap_leaf_script_sig(pk, leaf_hash) {
                     Witness::Stack(vec![Placeholder::SchnorrSig(
                         pk.clone(),
-                        Some(leaf_hash.clone()),
+                        SchnorrSigType::ScriptSpend {
+                            leaf_hash: *leaf_hash,
+                        },
+                        size,
                     )])
                 } else {
                     // Signatures cannot be forged
@@ -874,11 +801,11 @@ impl<Pk: MiniscriptKey + ToPublicKey> Witness<Placeholder<Pk>> {
                 None => Witness::Impossible,
             },
             SigType::Schnorr => match sat.lookup_raw_pkh_tap_leaf_script_sig(&(*pkh, *leaf_hash)) {
-                true => Witness::Stack(vec![
-                    Placeholder::SchnorrSigHash(pkh.clone(), *leaf_hash),
+                Some(size) => Witness::Stack(vec![
+                    Placeholder::SchnorrSigHash(pkh.clone(), *leaf_hash, size),
                     Placeholder::PubkeyHash(pkh.clone(), 32),
                 ]),
-                false => Witness::Impossible,
+                None => Witness::Impossible,
             },
         }
     }

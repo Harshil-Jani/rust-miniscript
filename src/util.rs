@@ -5,7 +5,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{PubkeyHash, Script};
 
 use crate::miniscript::context;
-use crate::miniscript::satisfy::{PartialSatisfaction, Placeholder};
+use crate::miniscript::satisfy::Placeholder;
 use crate::prelude::*;
 use crate::{MiniscriptKey, ScriptContext, ToPublicKey};
 pub(crate) fn varint_len(n: usize) -> usize {
@@ -22,7 +22,9 @@ impl<Pk: MiniscriptKey> ItemSize for Placeholder<Pk> {
             Placeholder::PubkeyHash(_, size) => *size,
             Placeholder::Pubkey(_, size) => *size,
             Placeholder::EcdsaSigPk(_) | Placeholder::EcdsaSigHash(_) => 73,
-            Placeholder::SchnorrSig(_, _) | Placeholder::SchnorrSigHash(_, _) => 66,
+            Placeholder::SchnorrSig(_, _, size) | Placeholder::SchnorrSigHash(_, _, size) => {
+                size + 1
+            } // +1 for the OP_PUSH
             Placeholder::HashDissatisfaction
             | Placeholder::Sha256Preimage(_)
             | Placeholder::Hash256Preimage(_)
@@ -32,15 +34,6 @@ impl<Pk: MiniscriptKey> ItemSize for Placeholder<Pk> {
             Placeholder::PushZero => 1,
             Placeholder::TapScript(s) => s.len(),
             Placeholder::TapControlBlock(cb) => cb.serialize().len(),
-        }
-    }
-}
-
-impl<Pk: MiniscriptKey> ItemSize for PartialSatisfaction<Pk> {
-    fn size(&self) -> usize {
-        match self {
-            PartialSatisfaction::Placeholder(p) => p.size(),
-            PartialSatisfaction::Data(d) => d.len() + varint_len(d.len()),
         }
     }
 }
