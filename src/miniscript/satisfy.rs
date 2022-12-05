@@ -535,7 +535,7 @@ pub enum SchnorrSigType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Placeholder for some data in a [`WitnessTemplate`]
+/// Placeholder for some data in a [`Plan`]
 pub enum Placeholder<Pk: MiniscriptKey> {
     /// Public key and its size
     Pubkey(Pk, usize),
@@ -608,7 +608,7 @@ impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
 
 impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
     /// Replaces the placeholders with the information given by the satisfier
-    fn satisfy_self<Sat: Satisfier<Pk>>(&self, sat: &Sat) -> Option<Vec<u8>> {
+    pub fn satisfy_self<Sat: Satisfier<Pk>>(&self, sat: &Sat) -> Option<Vec<u8>> {
         match self {
             Placeholder::Pubkey(pk, _) => Some(pk.to_public_key().to_bytes()),
             // Placeholder::PubkeyHash might be created after a call to lookup_raw_pkh_pk (in
@@ -672,42 +672,6 @@ pub enum Witness<T> {
     /// No third party can produce a satisfaction without private key
     /// Witness Impossible
     Impossible,
-}
-
-/// Template of a witness being constructed interactively
-///
-/// The generic `I` type determines the available API:
-/// - `Placeholder<Pk>` indicates the witness only contains placeholders, i.e. it's just an empty
-///   template
-/// - `PartialSatisfaction<Pk>` indicates the witness contains some placeholders and some actual
-///   pieces of data
-#[derive(Debug, Clone)]
-pub struct WitnessTemplate<I> {
-    stack: Vec<I>,
-}
-
-impl<I> AsRef<[I]> for WitnessTemplate<I> {
-    fn as_ref(&self) -> &[I] {
-        &self.stack
-    }
-}
-
-impl<Pk: MiniscriptKey + ToPublicKey> WitnessTemplate<Placeholder<Pk>> {
-    /// Construct an instance from a stack of placeholders
-    pub fn from_placeholder_stack(stack: Vec<Placeholder<Pk>>) -> Self {
-        WitnessTemplate { stack }
-    }
-
-    /// Try completing the witness in one go using a [`Satisfier`]
-    pub fn try_completing<Sat: Satisfier<Pk>>(&self, stfr: &Sat) -> Option<Vec<Vec<u8>>> {
-        let stack = self
-            .stack
-            .iter()
-            .map(|placeholder| placeholder.satisfy_self(stfr))
-            .collect::<Option<_>>()?;
-
-        Some(stack)
-    }
 }
 
 impl<Pk: MiniscriptKey> PartialOrd for Witness<Placeholder<Pk>> {
@@ -899,31 +863,6 @@ pub struct Satisfaction<T> {
     pub absolute_timelock: Option<PackedLockTime>,
     /// The relative timelock used by this satisfaction
     pub relative_timelock: Option<Sequence>,
-}
-
-impl<T> Satisfaction<T> {
-    pub(crate) fn map_stack<U, F>(self, mapfn: F) -> Satisfaction<U>
-    where
-        F: Fn(Vec<T>) -> Vec<U>,
-    {
-        let Satisfaction {
-            stack,
-            has_sig,
-            relative_timelock,
-            absolute_timelock,
-        } = self;
-        let stack = match stack {
-            Witness::Stack(stack) => Witness::Stack(mapfn(stack)),
-            Witness::Unavailable => Witness::Unavailable,
-            Witness::Impossible => Witness::Impossible,
-        };
-        Satisfaction {
-            stack,
-            has_sig,
-            relative_timelock,
-            absolute_timelock,
-        }
-    }
 }
 
 impl<Pk: MiniscriptKey + ToPublicKey> Satisfaction<Placeholder<Pk>> {
@@ -1855,6 +1794,32 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfaction<Placeholder<Pk>> {
             },
         }
     }
+
+    /// Try creating the final witness using a [`Satisfier`]
+    pub fn try_completing<Sat: Satisfier<Pk>>(&self, stfr: &Sat) -> Option<Satisfaction<Vec<u8>>> {
+        let Satisfaction {
+            stack,
+            has_sig,
+            relative_timelock,
+            absolute_timelock,
+        } = self;
+        let stack = match stack {
+            Witness::Stack(stack) => Witness::Stack(
+                stack
+                    .iter()
+                    .map(|placeholder| placeholder.satisfy_self(stfr))
+                    .collect::<Option<_>>()?,
+            ),
+            Witness::Unavailable => Witness::Unavailable,
+            Witness::Impossible => Witness::Impossible,
+        };
+        Some(Satisfaction {
+            stack,
+            has_sig: *has_sig,
+            relative_timelock: *relative_timelock,
+            absolute_timelock: *absolute_timelock,
+        })
+    }
 }
 
 impl Satisfaction<Placeholder<DefiniteDescriptorKey>> {
@@ -1862,7 +1827,7 @@ impl Satisfaction<Placeholder<DefiniteDescriptorKey>> {
         if let Witness::Stack(stack) = self.stack {
             Some(Plan {
                 desc_type,
-                template: WitnessTemplate::from_placeholder_stack(stack),
+                template: stack,
                 absolute_timelock: self.absolute_timelock.map(Into::into),
                 relative_timelock: self.relative_timelock,
             })
@@ -1886,11 +1851,8 @@ impl Satisfaction<Vec<u8>> {
         Sat: Satisfier<Pk>,
     {
         Satisfaction::<Placeholder<Pk>>::build_template(term, &stfr, root_has_sig, leaf_hash)
-            .map_stack(|stack| {
-                WitnessTemplate::from_placeholder_stack(stack)
-                    .try_completing(stfr)
-                    .expect("the same satisfier should manage to complete the template")
-            })
+            .try_completing(stfr)
+            .expect("the same satisfier should manage to complete the template")
     }
 
     /// Produce a satisfaction(possibly malleable)
@@ -1906,10 +1868,7 @@ impl Satisfaction<Vec<u8>> {
         Sat: Satisfier<Pk>,
     {
         Satisfaction::<Placeholder<Pk>>::build_template_mall(term, &stfr, root_has_sig, leaf_hash)
-            .map_stack(|stack| {
-                WitnessTemplate::from_placeholder_stack(stack)
-                    .try_completing(stfr)
-                    .expect("the same satisfier should manage to complete the template")
-            })
+            .try_completing(stfr)
+            .expect("the same satisfier should manage to complete the template")
     }
 }

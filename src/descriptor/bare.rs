@@ -17,7 +17,7 @@ use super::checksum::{self, verify_checksum};
 use crate::descriptor::{DefiniteDescriptorKey, DescriptorType};
 use crate::expression::{self, FromTree};
 use crate::miniscript::context::ScriptContext;
-use crate::miniscript::satisfy::{Placeholder, WitnessTemplate};
+use crate::miniscript::satisfy::Placeholder;
 use crate::plan::{AssetProvider, Plan};
 use crate::policy::{semantic, Liftable};
 use crate::prelude::*;
@@ -350,7 +350,7 @@ impl Pkh<DefiniteDescriptorKey> {
                 relative_timelock: None,
                 absolute_timelock: None,
                 desc_type: DescriptorType::Pkh,
-                template: WitnessTemplate::from_placeholder_stack(stack),
+                template: stack,
             })
         } else {
             None

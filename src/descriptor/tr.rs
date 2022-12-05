@@ -15,9 +15,7 @@ use sync::Arc;
 use super::checksum::{self, verify_checksum};
 use crate::descriptor::{DefiniteDescriptorKey, DescriptorType};
 use crate::expression::{self, FromTree};
-use crate::miniscript::satisfy::{
-    Placeholder, Satisfaction, SchnorrSigType, Witness, WitnessTemplate,
-};
+use crate::miniscript::satisfy::{Placeholder, Satisfaction, SchnorrSigType, Witness};
 use crate::miniscript::Miniscript;
 use crate::plan::{AssetProvider, Plan};
 use crate::policy::semantic::Policy;
@@ -371,12 +369,9 @@ impl<Pk: MiniscriptKey + ToPublicKey> Tr<Pk> {
     where
         S: Satisfier<Pk>,
     {
-        let satisfaction =
-            best_tap_spend(self, satisfier, false /* allow_mall */).map_stack(|stack| {
-                WitnessTemplate::from_placeholder_stack(stack)
-                    .try_completing(satisfier)
-                    .expect("the same satisfier should manage to complete the template")
-            });
+        let satisfaction = best_tap_spend(self, satisfier, false /* allow_mall */)
+            .try_completing(satisfier)
+            .expect("the same satisfier should manage to complete the template");
         if let Witness::Stack(stack) = satisfaction.stack {
             Ok((stack, Script::new()))
         } else {
@@ -391,12 +386,9 @@ impl<Pk: MiniscriptKey + ToPublicKey> Tr<Pk> {
     where
         S: Satisfier<Pk>,
     {
-        let satisfaction =
-            best_tap_spend(self, satisfier, true /* allow_mall */).map_stack(|stack| {
-                WitnessTemplate::from_placeholder_stack(stack)
-                    .try_completing(satisfier)
-                    .expect("the same satisfier should manage to complete the template")
-            });
+        let satisfaction = best_tap_spend(self, satisfier, true /* allow_mall */)
+            .try_completing(satisfier)
+            .expect("the same satisfier should manage to complete the template");
         if let Witness::Stack(stack) = satisfaction.stack {
             Ok((stack, Script::new()))
         } else {

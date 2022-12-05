@@ -34,7 +34,7 @@ use bitcoin::{LockTime, Sequence};
 use crate::descriptor::{DescriptorType, KeyMap};
 use crate::miniscript::context::SigType;
 use crate::miniscript::hash256;
-use crate::miniscript::satisfy::{Placeholder, Satisfier, WitnessTemplate};
+use crate::miniscript::satisfy::{Placeholder, Satisfier};
 use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
@@ -255,7 +255,7 @@ pub enum RequiredPreimage<'h, Pk: MiniscriptKey> {
 #[derive(Debug, Clone)]
 pub struct Plan {
     /// This plan's witness template
-    pub template: WitnessTemplate<Placeholder<DefiniteDescriptorKey>>,
+    pub template: Vec<Placeholder<DefiniteDescriptorKey>>,
     /// The absolute timelock this plan uses
     pub absolute_timelock: Option<LockTime>,
     /// The relative timelock this plan uses
@@ -300,6 +300,20 @@ impl Plan {
             0 // should be 1 if there's at least one segwit input in the tx, but that's out of
               // scope as we can't possibly know that just by looking at the descriptor
         }
+    }
+
+    /// Try creating the final witness using a [`Satisfier`]
+    pub fn try_completing<Sat: Satisfier<DefiniteDescriptorKey>>(
+        &self,
+        stfr: &Sat,
+    ) -> Option<Vec<Vec<u8>>> {
+        let stack = self
+            .template
+            .iter()
+            .map(|placeholder| placeholder.satisfy_self(stfr))
+            .collect::<Option<_>>()?;
+
+        Some(stack)
     }
 }
 
