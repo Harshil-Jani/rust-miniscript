@@ -23,7 +23,7 @@ use bitcoin::{self, secp256k1, Address, Network, Script, TxIn};
 use sync::Arc;
 
 use self::checksum::verify_checksum;
-use crate::miniscript::{Legacy, Miniscript, Segwitv0};
+use crate::miniscript::{satisfy, Legacy, Miniscript, Segwitv0};
 use crate::plan::{AssetProvider, Plan};
 use crate::prelude::*;
 use crate::{
@@ -515,32 +515,54 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
 
 impl Descriptor<DefiniteDescriptorKey> {
     /// Returns a plan if the provided assets are sufficient to produce a non-malleable satisfaction
-    pub fn get_plan<P>(&self, provider: &P) -> Option<Plan>
+    pub fn get_plan<'d, P>(&'d self, provider: &P) -> Option<Plan<'d>>
     where
         P: AssetProvider<DefiniteDescriptorKey>,
     {
-        match *self {
-            Descriptor::Bare(ref bare) => bare.get_plan(provider),
-            Descriptor::Pkh(ref pkh) => pkh.get_plan(provider),
-            Descriptor::Wpkh(ref wpkh) => wpkh.get_plan(provider),
-            Descriptor::Wsh(ref wsh) => wsh.get_plan(provider),
-            Descriptor::Sh(ref sh) => sh.get_plan(provider),
-            Descriptor::Tr(ref tr) => tr.get_plan(provider),
+        let satisfaction = match *self {
+            Descriptor::Bare(ref bare) => bare.get_plan_satisfaction(provider),
+            Descriptor::Pkh(ref pkh) => pkh.get_plan_satisfaction(provider),
+            Descriptor::Wpkh(ref wpkh) => wpkh.get_plan_satisfaction(provider),
+            Descriptor::Wsh(ref wsh) => wsh.get_plan_satisfaction(provider),
+            Descriptor::Sh(ref sh) => sh.get_plan_satisfaction(provider),
+            Descriptor::Tr(ref tr) => tr.get_plan_satisfaction(provider),
+        };
+
+        if let satisfy::Witness::Stack(stack) = satisfaction.stack {
+            Some(Plan {
+                descriptor: self,
+                template: stack,
+                absolute_timelock: satisfaction.absolute_timelock.map(Into::into),
+                relative_timelock: satisfaction.relative_timelock,
+            })
+        } else {
+            None
         }
     }
 
     /// Returns a plan if the provided assets are sufficient to produce a malleable satisfaction
-    pub fn get_plan_mall<P>(&self, provider: &P) -> Option<Plan>
+    pub fn get_plan_mall<'d, P>(&'d self, provider: &P) -> Option<Plan>
     where
         P: AssetProvider<DefiniteDescriptorKey>,
     {
-        match *self {
-            Descriptor::Bare(ref bare) => bare.get_plan_mall(provider),
-            Descriptor::Pkh(ref pkh) => pkh.get_plan_mall(provider),
-            Descriptor::Wpkh(ref wpkh) => wpkh.get_plan_mall(provider),
-            Descriptor::Wsh(ref wsh) => wsh.get_plan_mall(provider),
-            Descriptor::Sh(ref sh) => sh.get_plan_mall(provider),
-            Descriptor::Tr(ref tr) => tr.get_plan_mall(provider),
+        let satisfaction = match *self {
+            Descriptor::Bare(ref bare) => bare.get_plan_satisfaction_mall(provider),
+            Descriptor::Pkh(ref pkh) => pkh.get_plan_satisfaction_mall(provider),
+            Descriptor::Wpkh(ref wpkh) => wpkh.get_plan_satisfaction_mall(provider),
+            Descriptor::Wsh(ref wsh) => wsh.get_plan_satisfaction_mall(provider),
+            Descriptor::Sh(ref sh) => sh.get_plan_satisfaction_mall(provider),
+            Descriptor::Tr(ref tr) => tr.get_plan_satisfaction_mall(provider),
+        };
+
+        if let satisfy::Witness::Stack(stack) = satisfaction.stack {
+            Some(Plan {
+                descriptor: self,
+                template: stack,
+                absolute_timelock: satisfaction.absolute_timelock.map(Into::into),
+                relative_timelock: satisfaction.relative_timelock,
+            })
+        } else {
+            None
         }
     }
 }

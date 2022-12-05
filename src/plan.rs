@@ -29,16 +29,16 @@ use core::iter::FromIterator;
 use bitcoin::hashes::{hash160, ripemd160, sha256};
 use bitcoin::util::address::WitnessVersion;
 use bitcoin::util::taproot::TapLeafHash;
-use bitcoin::{LockTime, Sequence};
+use bitcoin::{LockTime, Script, Sequence};
 
-use crate::descriptor::{DescriptorType, KeyMap};
+use crate::descriptor::{Descriptor, DescriptorType, KeyMap};
 use crate::miniscript::context::SigType;
 use crate::miniscript::hash256;
 use crate::miniscript::satisfy::{Placeholder, Satisfier};
 use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
-    DefiniteDescriptorKey, DescriptorPublicKey, MiniscriptKey, ScriptContext, ToPublicKey,
+    DefiniteDescriptorKey, DescriptorPublicKey, Error, MiniscriptKey, ScriptContext, ToPublicKey,
 };
 
 /// Trait describing a present/missing lookup table for constructing witness templates
@@ -253,7 +253,7 @@ pub enum RequiredPreimage<'h, Pk: MiniscriptKey> {
 /// Calling `get_plan` on a Descriptor will return this structure,
 /// containing the cheapest spending path possible (considering the `Assets` given)
 #[derive(Debug, Clone)]
-pub struct Plan {
+pub struct Plan<'d> {
     /// This plan's witness template
     pub template: Vec<Placeholder<DefiniteDescriptorKey>>,
     /// The absolute timelock this plan uses
@@ -261,13 +261,13 @@ pub struct Plan {
     /// The relative timelock this plan uses
     pub relative_timelock: Option<Sequence>,
 
-    pub(crate) desc_type: DescriptorType,
+    pub(crate) descriptor: &'d Descriptor<DefiniteDescriptorKey>,
 }
 
-impl Plan {
+impl<'d> Plan<'d> {
     /// Returns the witness version
     pub fn witness_version(&self) -> Option<WitnessVersion> {
-        self.desc_type.segwit_version()
+        self.descriptor.desc_type().segwit_version()
     }
 
     /// The weight, in witness units, needed for satisfying this plan (includes both
@@ -278,7 +278,10 @@ impl Plan {
 
     /// The size in bytes of the script sig that satisfies this plan
     pub fn scriptsig_size(&self) -> usize {
-        match (self.desc_type.segwit_version(), self.desc_type) {
+        match (
+            self.descriptor.desc_type().segwit_version(),
+            self.descriptor.desc_type(),
+        ) {
             // Entire witness goes in the script_sig
             (None, _) => witness_size(self.template.as_ref()),
             // Taproot doesn't have a "wrapped" version (scriptSig len (1))
@@ -294,7 +297,7 @@ impl Plan {
 
     /// The size in bytes of the witness that satisfies this plan
     pub fn witness_size(&self) -> usize {
-        if let Some(_) = self.desc_type.segwit_version() {
+        if let Some(_) = self.descriptor.desc_type().segwit_version() {
             witness_size(self.template.as_ref())
         } else {
             0 // should be 1 if there's at least one segwit input in the tx, but that's out of
@@ -302,18 +305,39 @@ impl Plan {
         }
     }
 
-    /// Try creating the final witness using a [`Satisfier`]
-    pub fn try_completing<Sat: Satisfier<DefiniteDescriptorKey>>(
+    /// Try creating the final script_sig and witness using a [`Satisfier`]
+    pub fn satisfy<Sat: Satisfier<DefiniteDescriptorKey>>(
         &self,
         stfr: &Sat,
-    ) -> Option<Vec<Vec<u8>>> {
+    ) -> Result<(Vec<Vec<u8>>, Script), Error> {
+        use bitcoin::blockdata::script::Builder;
+
         let stack = self
             .template
             .iter()
             .map(|placeholder| placeholder.satisfy_self(stfr))
-            .collect::<Option<_>>()?;
+            .collect::<Option<Vec<Vec<u8>>>>()
+            .ok_or(Error::CouldNotSatisfy)?;
 
-        Some(stack)
+        Ok(match self.descriptor.desc_type() {
+            DescriptorType::Bare
+            | DescriptorType::Sh
+            | DescriptorType::Pkh
+            | DescriptorType::ShSortedMulti => (
+                vec![],
+                stack
+                    .iter()
+                    .fold(Builder::new(), |builder, item| builder.push_slice(item))
+                    .into_script(),
+            ),
+            DescriptorType::Wpkh
+            | DescriptorType::Wsh
+            | DescriptorType::WshSortedMulti
+            | DescriptorType::Tr => (stack, Script::new()),
+            DescriptorType::ShWsh | DescriptorType::ShWshSortedMulti | DescriptorType::ShWpkh => {
+                (stack, self.descriptor.unsigned_script_sig())
+            }
+        })
     }
 }
 

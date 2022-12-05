@@ -13,11 +13,11 @@ use bitcoin::{secp256k1, Address, Network, Script};
 use sync::Arc;
 
 use super::checksum::{self, verify_checksum};
-use crate::descriptor::{DefiniteDescriptorKey, DescriptorType};
+use crate::descriptor::DefiniteDescriptorKey;
 use crate::expression::{self, FromTree};
 use crate::miniscript::satisfy::{Placeholder, Satisfaction, SchnorrSigType, Witness};
 use crate::miniscript::Miniscript;
-use crate::plan::{AssetProvider, Plan};
+use crate::plan::AssetProvider;
 use crate::policy::semantic::Policy;
 use crate::policy::Liftable;
 use crate::prelude::*;
@@ -399,19 +399,25 @@ impl<Pk: MiniscriptKey + ToPublicKey> Tr<Pk> {
 
 impl Tr<DefiniteDescriptorKey> {
     /// Returns a plan if the provided assets are sufficient to produce a non-malleable satisfaction
-    pub fn get_plan<P>(&self, provider: &P) -> Option<Plan>
+    pub fn get_plan_satisfaction<P>(
+        &self,
+        provider: &P,
+    ) -> Satisfaction<Placeholder<DefiniteDescriptorKey>>
     where
         P: AssetProvider<DefiniteDescriptorKey>,
     {
-        best_tap_spend(self, provider, false /* allow_mall */).into_plan(DescriptorType::Tr)
+        best_tap_spend(self, provider, false /* allow_mall */)
     }
 
     /// Returns a plan if the provided assets are sufficient to produce a malleable satisfaction
-    pub fn get_plan_mall<P>(&self, provider: &P) -> Option<Plan>
+    pub fn get_plan_satisfaction_mall<P>(
+        &self,
+        provider: &P,
+    ) -> Satisfaction<Placeholder<DefiniteDescriptorKey>>
     where
         P: AssetProvider<DefiniteDescriptorKey>,
     {
-        best_tap_spend(self, provider, true /* allow_mall */).into_plan(DescriptorType::Tr)
+        best_tap_spend(self, provider, true /* allow_mall */)
     }
 }
 

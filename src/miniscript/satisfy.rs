@@ -16,13 +16,10 @@ use bitcoin::{LockTime, PackedLockTime, Script, Sequence};
 use sync::Arc;
 
 use super::context::SigType;
-use crate::descriptor::DescriptorType;
-use crate::plan::{AssetProvider, Plan};
+use crate::plan::AssetProvider;
 use crate::prelude::*;
 use crate::util::witness_size;
-use crate::{
-    DefiniteDescriptorKey, Miniscript, MiniscriptKey, ScriptContext, Terminal, ToPublicKey,
-};
+use crate::{Miniscript, MiniscriptKey, ScriptContext, Terminal, ToPublicKey};
 
 /// Type alias for 32 byte Preimage.
 pub type Preimage32 = [u8; 32];
@@ -1819,21 +1816,6 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfaction<Placeholder<Pk>> {
             relative_timelock: *relative_timelock,
             absolute_timelock: *absolute_timelock,
         })
-    }
-}
-
-impl Satisfaction<Placeholder<DefiniteDescriptorKey>> {
-    pub(crate) fn into_plan(self, desc_type: DescriptorType) -> Option<Plan> {
-        if let Witness::Stack(stack) = self.stack {
-            Some(Plan {
-                desc_type,
-                template: stack,
-                absolute_timelock: self.absolute_timelock.map(Into::into),
-                relative_timelock: self.relative_timelock,
-            })
-        } else {
-            None
-        }
     }
 }
 
