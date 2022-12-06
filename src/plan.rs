@@ -28,13 +28,14 @@ use core::iter::FromIterator;
 
 use bitcoin::hashes::{hash160, ripemd160, sha256};
 use bitcoin::util::address::WitnessVersion;
-use bitcoin::util::taproot::TapLeafHash;
-use bitcoin::{LockTime, Script, Sequence};
+use bitcoin::util::taproot::{ControlBlock, LeafVersion, TapLeafHash};
+use bitcoin::util::{bip32, psbt};
+use bitcoin::{LockTime, Script, Sequence, XOnlyPublicKey};
 
-use crate::descriptor::{Descriptor, DescriptorType, KeyMap};
+use crate::descriptor::{self, Descriptor, DescriptorType, KeyMap};
 use crate::miniscript::context::SigType;
 use crate::miniscript::hash256;
-use crate::miniscript::satisfy::{Placeholder, Satisfier};
+use crate::miniscript::satisfy::{Placeholder, Satisfier, SchnorrSigType};
 use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
@@ -338,6 +339,112 @@ impl<'d> Plan<'d> {
                 (stack, self.descriptor.unsigned_script_sig())
             }
         })
+    }
+
+    /// Update a PSBT input with the metadata required to complete this plan
+    ///
+    /// This will only add the metadata for items required to complete this plan. For example, if
+    /// there are multiple keys present in the descriptor, only the few used by this plan will be
+    /// added to the PSBT.
+    pub fn update_psbt_input(&self, input: &mut psbt::Input) {
+        if let Descriptor::Tr(tr) = &self.descriptor {
+            #[derive(Default)]
+            struct TrDescriptorData {
+                tap_script: Option<Script>,
+                control_block: Option<ControlBlock>,
+                internal_key: Option<XOnlyPublicKey>,
+                key_origins: BTreeMap<XOnlyPublicKey, (Vec<TapLeafHash>, bip32::KeySource)>,
+            }
+
+            let spend_info = tr.spend_info();
+            input.tap_merkle_root = spend_info.merkle_root();
+
+            let data = self
+                .template
+                .iter()
+                .fold(TrDescriptorData::default(), |mut data, item| {
+                    match item {
+                        Placeholder::TapScript(script) => data.tap_script = Some(script.clone()),
+                        Placeholder::TapControlBlock(cb) => data.control_block = Some(cb.clone()),
+                        Placeholder::SchnorrSig(pk, sig_type, _) => {
+                            let raw_pk = pk.to_x_only_pubkey();
+
+                            let leaf_hash = match sig_type {
+                                SchnorrSigType::KeySpend { .. } => {
+                                    data.internal_key = Some(raw_pk);
+                                    None
+                                }
+                                SchnorrSigType::ScriptSpend { leaf_hash } => Some(leaf_hash),
+                            };
+
+                            data.key_origins
+                                .entry(raw_pk)
+                                .and_modify(|(tapleaf_hashes, _)| {
+                                    if let Some(leaf_hash) = leaf_hash {
+                                        tapleaf_hashes.push(*leaf_hash);
+                                    }
+                                })
+                                .or_insert_with(|| {
+                                    (
+                                        if let Some(lh) = leaf_hash {
+                                            vec![*lh]
+                                        } else {
+                                            vec![]
+                                        },
+                                        (pk.master_fingerprint(), pk.full_derivation_path()),
+                                    )
+                                });
+                        }
+                        _ => {}
+                    }
+
+                    data
+                });
+
+            // TODO: TapTree. we need to re-traverse the tree to build it, sigh
+
+            input.tap_internal_key = data.internal_key;
+            input.tap_key_origins.extend(data.key_origins.into_iter());
+            if let (Some(tap_script), Some(control_block)) = (data.tap_script, data.control_block) {
+                input
+                    .tap_scripts
+                    .insert(control_block, (tap_script, LeafVersion::TapScript));
+            }
+
+            // Ensure there are no duplicated leaf hashes. This can happen if some of them were
+            // already present in the map when this function is called, since this only appends new
+            // data to the psbt without checking what's already present.
+            for (tapleaf_hashes, _) in input.tap_key_origins.values_mut() {
+                tapleaf_hashes.sort();
+                tapleaf_hashes.dedup();
+            }
+        } else {
+            input
+                .bip32_derivation
+                .extend(self.template.iter().filter_map(|item| match item {
+                    Placeholder::EcdsaSigPk(pk) => Some((
+                        pk.to_public_key().inner,
+                        (pk.master_fingerprint(), pk.full_derivation_path()),
+                    )),
+                    _ => None,
+                }));
+
+            match &self.descriptor {
+                Descriptor::Bare(_) | Descriptor::Pkh(_) | Descriptor::Wpkh(_) => {}
+                Descriptor::Sh(sh) => match sh.as_inner() {
+                    descriptor::ShInner::Wsh(wsh) => {
+                        input.witness_script = Some(wsh.inner_script());
+                        input.redeem_script = Some(wsh.inner_script().to_v0_p2wsh());
+                    }
+                    descriptor::ShInner::Wpkh(..) => input.redeem_script = Some(sh.inner_script()),
+                    descriptor::ShInner::SortedMulti(_) | descriptor::ShInner::Ms(_) => {
+                        input.redeem_script = Some(sh.inner_script())
+                    }
+                },
+                Descriptor::Wsh(wsh) => input.witness_script = Some(wsh.inner_script()),
+                Descriptor::Tr(_) => unreachable!("Tr is dealt with separately"),
+            }
+        }
     }
 }
 
@@ -675,6 +782,7 @@ impl Assets {
 mod test {
     use std::str::FromStr;
 
+    use bitcoin::util::bip32::ExtendedPubKey;
     use bitcoin::{LockTime, Sequence};
 
     use super::*;
@@ -1020,5 +1128,124 @@ mod test {
         ];
 
         test_inner(&desc, keys, hashes, tests);
+    }
+
+    #[test]
+    fn test_plan_update_psbt_tr() {
+        // keys taken from: https://github.com/bitcoin/bips/blob/master/bip-0086.mediawiki#Specifications
+        let root_xpub = ExtendedPubKey::from_str("xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8").unwrap();
+        let fingerprint = root_xpub.fingerprint();
+        let xpub = format!("[{}/86'/0'/0']xpub6BgBgsespWvERF3LHQu6CnqdvfEvtMcQjYrcRzx53QJjSxarj2afYWcLteoGVky7D3UKDP9QyrLprQ3VCECoY49yfdDEHGCtMMj92pReUsQ", fingerprint);
+        let desc = format!(
+            "tr({}/0/0,{{pkh({}/0/1),multi_a(2,{}/1/0,{}/1/1)}})",
+            xpub, xpub, xpub, xpub
+        );
+
+        let desc = Descriptor::from_str(&desc).unwrap();
+
+        let internal_key = DescriptorPublicKey::from_str(&format!("{}/0/0", xpub)).unwrap();
+        let first_branch = DescriptorPublicKey::from_str(&format!("{}/0/1", xpub)).unwrap();
+        let second_branch = DescriptorPublicKey::from_str(&format!("{}/1/*", xpub)).unwrap(); // Note this is a wildcard key, so it can sign for the whole multi_a
+
+        let mut psbt_input = bitcoin::util::psbt::Input::default();
+        let assets = Assets::new().add(internal_key);
+        desc.get_plan(&assets)
+            .unwrap()
+            .update_psbt_input(&mut psbt_input);
+        assert!(
+            psbt_input.tap_internal_key.is_some(),
+            "Internal key is missing"
+        );
+        assert!(
+            psbt_input.tap_merkle_root.is_some(),
+            "Merkle root is missing"
+        );
+        assert_eq!(
+            psbt_input.tap_key_origins.len(),
+            1,
+            "Unexpected number of tap_key_origins"
+        );
+        assert_eq!(
+            psbt_input.tap_scripts.len(),
+            0,
+            "Unexpected number of tap_scripts"
+        );
+
+        let mut psbt_input = bitcoin::util::psbt::Input::default();
+        let assets = Assets::new().add(first_branch);
+        desc.get_plan(&assets)
+            .unwrap()
+            .update_psbt_input(&mut psbt_input);
+        assert!(
+            psbt_input.tap_internal_key.is_none(),
+            "Internal key is present"
+        );
+        assert!(
+            psbt_input.tap_merkle_root.is_some(),
+            "Merkle root is missing"
+        );
+        assert_eq!(
+            psbt_input.tap_key_origins.len(),
+            1,
+            "Unexpected number of tap_key_origins"
+        );
+        assert_eq!(
+            psbt_input.tap_scripts.len(),
+            1,
+            "Unexpected number of tap_scripts"
+        );
+
+        let mut psbt_input = bitcoin::util::psbt::Input::default();
+        let assets = Assets::new().add(second_branch);
+        desc.get_plan(&assets)
+            .unwrap()
+            .update_psbt_input(&mut psbt_input);
+        assert!(
+            psbt_input.tap_internal_key.is_none(),
+            "Internal key is present"
+        );
+        assert!(
+            psbt_input.tap_merkle_root.is_some(),
+            "Merkle root is missing"
+        );
+        assert_eq!(
+            psbt_input.tap_key_origins.len(),
+            2,
+            "Unexpected number of tap_key_origins"
+        );
+        assert_eq!(
+            psbt_input.tap_scripts.len(),
+            1,
+            "Unexpected number of tap_scripts"
+        );
+    }
+
+    #[test]
+    fn test_plan_update_psbt_segwit() {
+        // keys taken from: https://github.com/bitcoin/bips/blob/master/bip-0086.mediawiki#Specifications
+        let root_xpub = ExtendedPubKey::from_str("xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8").unwrap();
+        let fingerprint = root_xpub.fingerprint();
+        let xpub = format!("[{}/86'/0'/0']xpub6BgBgsespWvERF3LHQu6CnqdvfEvtMcQjYrcRzx53QJjSxarj2afYWcLteoGVky7D3UKDP9QyrLprQ3VCECoY49yfdDEHGCtMMj92pReUsQ", fingerprint);
+        let desc = format!("wsh(multi(2,{}/1/0,{}/1/1))", xpub, xpub);
+
+        let desc = Descriptor::from_str(&desc).unwrap();
+
+        let asset_key = DescriptorPublicKey::from_str(&format!("{}/1/*", xpub)).unwrap(); // Note this is a wildcard key, so it can sign for the whole multi
+
+        let mut psbt_input = bitcoin::util::psbt::Input::default();
+        let assets = Assets::new().add(asset_key);
+        desc.get_plan(&assets)
+            .unwrap()
+            .update_psbt_input(&mut psbt_input);
+        assert!(
+            psbt_input.witness_script.is_some(),
+            "Witness script missing"
+        );
+        assert!(psbt_input.redeem_script.is_none(), "Redeem script present");
+        assert_eq!(
+            psbt_input.bip32_derivation.len(),
+            2,
+            "Unexpected number of bip32_derivation"
+        );
     }
 }
