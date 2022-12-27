@@ -348,12 +348,17 @@ impl<'d> Plan<'d> {
     /// added to the PSBT.
     pub fn update_psbt_input(&self, input: &mut psbt::Input) {
         if let Descriptor::Tr(tr) = &self.descriptor {
+            enum SpendType {
+                KeySpend { internal_key: XOnlyPublicKey },
+                ScriptSpend { leaf_hash: TapLeafHash },
+            }
+
             #[derive(Default)]
             struct TrDescriptorData {
                 tap_script: Option<Script>,
                 control_block: Option<ControlBlock>,
-                internal_key: Option<XOnlyPublicKey>,
-                key_origins: BTreeMap<XOnlyPublicKey, (Vec<TapLeafHash>, bip32::KeySource)>,
+                spend_type: Option<SpendType>,
+                key_origins: BTreeMap<XOnlyPublicKey, bip32::KeySource>,
             }
 
             let spend_info = tr.spend_info();
@@ -369,31 +374,19 @@ impl<'d> Plan<'d> {
                         Placeholder::SchnorrSig(pk, sig_type, _) => {
                             let raw_pk = pk.to_x_only_pubkey();
 
-                            let leaf_hash = match sig_type {
-                                SchnorrSigType::KeySpend { .. } => {
-                                    data.internal_key = Some(raw_pk);
-                                    None
-                                }
-                                SchnorrSigType::ScriptSpend { leaf_hash } => Some(leaf_hash),
-                            };
+                            match (&data.spend_type, sig_type) {
+                                // First encountered schnorr sig, update the `TrDescriptorData` accordingly
+                                (None, SchnorrSigType::KeySpend { .. }) => data.spend_type = Some(SpendType::KeySpend { internal_key: raw_pk }),
+                                (None, SchnorrSigType::ScriptSpend { leaf_hash }) => data.spend_type = Some(SpendType::ScriptSpend { leaf_hash: *leaf_hash }),
 
-                            data.key_origins
-                                .entry(raw_pk)
-                                .and_modify(|(tapleaf_hashes, _)| {
-                                    if let Some(leaf_hash) = leaf_hash {
-                                        tapleaf_hashes.push(*leaf_hash);
-                                    }
-                                })
-                                .or_insert_with(|| {
-                                    (
-                                        if let Some(lh) = leaf_hash {
-                                            vec![*lh]
-                                        } else {
-                                            vec![]
-                                        },
-                                        (pk.master_fingerprint(), pk.full_derivation_path()),
-                                    )
-                                });
+                                // Inconsistent placeholders (should be unreachable with the
+                                // current implementation)
+                                (Some(SpendType::KeySpend {..}), SchnorrSigType::ScriptSpend { .. }) | (Some(SpendType::ScriptSpend {..}), SchnorrSigType::KeySpend{..}) => unreachable!("Mixed taproot key-spend and script-spend placeholders in the same plan"),
+
+                                _ => {},
+                            }
+
+                            data.key_origins.insert(raw_pk, (pk.master_fingerprint(), pk.full_derivation_path()));
                         }
                         _ => {}
                     }
@@ -403,20 +396,31 @@ impl<'d> Plan<'d> {
 
             // TODO: TapTree. we need to re-traverse the tree to build it, sigh
 
-            input.tap_internal_key = data.internal_key;
-            input.tap_key_origins.extend(data.key_origins.into_iter());
+            let leaf_hash = match data.spend_type {
+                Some(SpendType::KeySpend { internal_key }) => {
+                    input.tap_internal_key = Some(internal_key);
+                    None
+                }
+                Some(SpendType::ScriptSpend { leaf_hash }) => Some(leaf_hash),
+                _ => None,
+            };
+            for (pk, key_source) in data.key_origins {
+                input
+                    .tap_key_origins
+                    .entry(pk)
+                    .and_modify(|(leaf_hashes, _)| {
+                        if let Some(lh) = leaf_hash {
+                            if leaf_hashes.iter().find(|&&i| i == lh).is_none() {
+                                leaf_hashes.push(lh);
+                            }
+                        }
+                    })
+                    .or_insert_with(|| (vec![], key_source));
+            }
             if let (Some(tap_script), Some(control_block)) = (data.tap_script, data.control_block) {
                 input
                     .tap_scripts
                     .insert(control_block, (tap_script, LeafVersion::TapScript));
-            }
-
-            // Ensure there are no duplicated leaf hashes. This can happen if some of them were
-            // already present in the map when this function is called, since this only appends new
-            // data to the psbt without checking what's already present.
-            for (tapleaf_hashes, _) in input.tap_key_origins.values_mut() {
-                tapleaf_hashes.sort();
-                tapleaf_hashes.dedup();
             }
         } else {
             input
@@ -454,9 +458,9 @@ impl<'d> Plan<'d> {
 /// Defaults to `ecdsa=true` and `taproot=TaprootCanSign::default()`
 pub struct CanSign {
     /// Whether the key can produce ECDSA signatures
-    ecdsa: bool,
+    pub ecdsa: bool,
     /// Whether the key can produce taproot (Schnorr) signatures
-    taproot: TaprootCanSign,
+    pub taproot: TaprootCanSign,
 }
 
 impl Default for CanSign {
@@ -474,11 +478,11 @@ impl Default for CanSign {
 /// Defaults to `key_spend=true`, `script_spend=Any` and `sighash_default=true`
 pub struct TaprootCanSign {
     /// Can produce key spend signatures
-    key_spend: bool,
+    pub key_spend: bool,
     /// Can produce script spend signatures
-    script_spend: TaprootAvailableLeaves,
+    pub script_spend: TaprootAvailableLeaves,
     /// Whether `SIGHASH_DEFAULT` will be used to sign
-    sighash_default: bool,
+    pub sighash_default: bool,
 }
 
 impl TaprootCanSign {
