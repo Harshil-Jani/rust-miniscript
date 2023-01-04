@@ -70,11 +70,19 @@ pub trait Satisfier<Pk: MiniscriptKey + ToPublicKey> {
     }
 
     /// Assert whether an relative locktime is satisfied
+    ///
+    /// NOTE: If a descriptor mixes time-based and height-based timelocks, the implementation of
+    /// this method MUST only allow timelocks of either unit, but not both. Allowing both could cause
+    /// miniscript to construct an invalid witness.
     fn check_older(&self, _: Sequence) -> bool {
         false
     }
 
     /// Assert whether a absolute locktime is satisfied
+    ///
+    /// NOTE: If a descriptor mixes time-based and height-based timelocks, the implementation of
+    /// this method MUST only allow timelocks of either unit, but not both. Allowing both could cause
+    /// miniscript to construct an invalid witness.
     fn check_after(&self, _: LockTime) -> bool {
         false
     }
