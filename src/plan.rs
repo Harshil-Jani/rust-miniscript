@@ -33,14 +33,11 @@ use bitcoin::util::{bip32, psbt};
 use bitcoin::{LockTime, Script, Sequence, XOnlyPublicKey};
 
 use crate::descriptor::{self, Descriptor, DescriptorType, KeyMap};
-use crate::miniscript::context::SigType;
 use crate::miniscript::hash256;
 use crate::miniscript::satisfy::{Placeholder, Satisfier, SchnorrSigType};
 use crate::prelude::*;
 use crate::util::witness_size;
-use crate::{
-    DefiniteDescriptorKey, DescriptorPublicKey, Error, MiniscriptKey, ScriptContext, ToPublicKey,
-};
+use crate::{DefiniteDescriptorKey, DescriptorPublicKey, Error, MiniscriptKey, ToPublicKey};
 
 /// Trait describing a present/missing lookup table for constructing witness templates
 ///
@@ -65,38 +62,6 @@ pub trait AssetProvider<Pk: MiniscriptKey> {
     /// Given a public key and a associated leaf hash, look up an schnorr signature with that key
     /// and return its size
     fn lookup_tap_leaf_script_sig(&self, _: &Pk, _: &TapLeafHash) -> Option<usize> {
-        None
-    }
-
-    /// Given a raw `Pkh`, lookup corresponding `Pk`. If present, return its lenght.
-    fn lookup_raw_pkh_pk<Ctx: ScriptContext>(&self, _: &hash160::Hash) -> Option<usize> {
-        None
-    }
-
-    /// Given a raw `Pkh`, lookup corresponding [`bitcoin::XOnlyPublicKey`].
-    fn lookup_raw_pkh_x_only_pk(&self, _: &hash160::Hash) -> bool {
-        false
-    }
-
-    /// Given a keyhash, look up the EC signature and the associated key. If present,
-    /// return the key lenght.
-    /// Even if signatures for public key Hashes are not available, the users
-    /// can use this map to provide pkh -> pk mapping which can be useful
-    /// for dissatisfying pkh.
-    fn lookup_raw_pkh_ecdsa_sig<Ctx: ScriptContext>(&self, _: &hash160::Hash) -> Option<usize> {
-        None
-    }
-
-    /// Given a keyhash, look up the schnorr signature and the associated key
-    /// Even if signatures for public key Hashes are not available, the users
-    /// can use this map to provide pkh -> pk mapping which can be useful
-    /// for dissatisfying pkh.
-    ///
-    /// Returns the signature size if present
-    fn lookup_raw_pkh_tap_leaf_script_sig(
-        &self,
-        _: &(hash160::Hash, TapLeafHash),
-    ) -> Option<usize> {
         None
     }
 
@@ -152,10 +117,6 @@ impl AssetProvider<DefiniteDescriptorKey> for LoggerAssetProvider {
     impl_log_method!(lookup_ecdsa_sig, pk: &DefiniteDescriptorKey, -> bool);
     impl_log_method!(lookup_tap_key_spend_sig, pk: &DefiniteDescriptorKey, -> Option<usize>);
     impl_log_method!(lookup_tap_leaf_script_sig, pk: &DefiniteDescriptorKey, leaf_hash: &TapLeafHash, -> Option<usize>);
-    impl_log_method!(lookup_raw_pkh_pk, <Ctx: ScriptContext> hash: &hash160::Hash, -> Option<usize>);
-    impl_log_method!(lookup_raw_pkh_x_only_pk, hash: &hash160::Hash, -> bool);
-    impl_log_method!(lookup_raw_pkh_ecdsa_sig, <Ctx: ScriptContext> hash: &hash160::Hash, -> Option<usize>);
-    impl_log_method!(lookup_raw_pkh_tap_leaf_script_sig, hash: &(hash160::Hash, TapLeafHash), -> Option<usize>);
     impl_log_method!(lookup_sha256, hash: &sha256::Hash, -> bool);
     impl_log_method!(lookup_hash256, hash: &hash256::Hash, -> bool);
     impl_log_method!(lookup_ripemd160, hash: &ripemd160::Hash, -> bool);
@@ -181,25 +142,6 @@ where
         Satisfier::lookup_tap_leaf_script_sig(self, pk, leaf_hash).map(|s| s.to_vec().len())
     }
 
-    fn lookup_raw_pkh_pk<Ctx: ScriptContext>(&self, hash: &hash160::Hash) -> Option<usize> {
-        Satisfier::lookup_raw_pkh_pk(self, hash).map(|p| Ctx::pk_len(&p))
-    }
-
-    fn lookup_raw_pkh_x_only_pk(&self, hash: &hash160::Hash) -> bool {
-        Satisfier::lookup_raw_pkh_x_only_pk(self, hash).is_some()
-    }
-
-    fn lookup_raw_pkh_ecdsa_sig<Ctx: ScriptContext>(&self, hash: &hash160::Hash) -> Option<usize> {
-        Satisfier::lookup_raw_pkh_ecdsa_sig(self, hash).map(|(p, _)| Ctx::pk_len(&p))
-    }
-
-    fn lookup_raw_pkh_tap_leaf_script_sig(
-        &self,
-        hash: &(hash160::Hash, TapLeafHash),
-    ) -> Option<usize> {
-        Satisfier::lookup_raw_pkh_tap_leaf_script_sig(self, hash).map(|(_, s)| s.to_vec().len())
-    }
-
     fn lookup_sha256(&self, hash: &Pk::Sha256) -> bool {
         Satisfier::lookup_sha256(self, hash).is_some()
     }
@@ -223,30 +165,6 @@ where
     fn check_after(&self, l: LockTime) -> bool {
         Satisfier::check_after(self, l)
     }
-}
-
-/// Enum defining the type of signature required
-#[derive(Debug, Clone)]
-pub enum RequiredSig<'pk, Pk: MiniscriptKey> {
-    /// ECDSA (legacy or Segwit-v0) signature
-    Ecdsa(&'pk Pk),
-    /// Schnorr key-spend signature (BIP-341)
-    SchnorrTapKey(&'pk Pk),
-    /// Schnorr script-spend signature (BIP-341)
-    SchnorrTapScript(&'pk Pk, &'pk TapLeafHash),
-}
-
-/// Enum defining the type of preimage required
-#[derive(Debug, Clone)]
-pub enum RequiredPreimage<'h, Pk: MiniscriptKey> {
-    /// HASH160 preimage
-    Hash160(&'h <Pk as MiniscriptKey>::Hash160),
-    /// RIPEMD160 preimage
-    Ripemd160(&'h <Pk as MiniscriptKey>::Ripemd160),
-    /// HASH256 preimage
-    Hash256(&'h <Pk as MiniscriptKey>::Hash256),
-    /// SHA256 preimage
-    Sha256(&'h <Pk as MiniscriptKey>::Sha256),
 }
 
 /// Representation of a particular spending path on a descriptor. Contains the witness template
@@ -452,7 +370,7 @@ impl<'d> Plan<'d> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 /// Signatures which a key can produce
 ///
 /// Defaults to `ecdsa=true` and `taproot=TaprootCanSign::default()`
@@ -472,7 +390,7 @@ impl Default for CanSign {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 /// Signatures which a taproot key can produce
 ///
 /// Defaults to `key_spend=true`, `script_spend=Any` and `sighash_default=true`
@@ -504,7 +422,7 @@ impl Default for TaprootCanSign {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 /// Which taproot leaves the key can sign for
 pub enum TaprootAvailableLeaves {
     /// Cannot sign for any leaf
@@ -514,7 +432,7 @@ pub enum TaprootAvailableLeaves {
     /// Can sign only for a specific leaf
     Single(TapLeafHash),
     /// Can sign for multiple leaves
-    Many(HashSet<TapLeafHash>),
+    Many(Vec<TapLeafHash>),
 }
 
 impl TaprootAvailableLeaves {
@@ -525,7 +443,7 @@ impl TaprootAvailableLeaves {
             None => false,
             Any => true,
             Single(v) => v == lh,
-            Many(set) => set.contains(lh),
+            Many(list) => list.contains(lh),
         }
     }
 }
@@ -533,24 +451,31 @@ impl TaprootAvailableLeaves {
 /// The Assets we can use to satisfy a particular spending path
 #[derive(Debug, Default)]
 pub struct Assets {
-    keys: HashMap<hash160::Hash, (DescriptorPublicKey, CanSign)>,
-    sha256_preimages: HashSet<sha256::Hash>,
-    hash256_preimages: HashSet<hash256::Hash>,
-    ripemd160_preimages: HashSet<ripemd160::Hash>,
-    hash160_preimages: HashSet<hash160::Hash>,
-    absolute_timelock: Option<LockTime>,
-    relative_timelock: Option<Sequence>,
+    /// Keys the user can sign for, and how
+    pub keys: HashSet<(DescriptorPublicKey, CanSign)>,
+    /// Set of available sha256 preimages
+    pub sha256_preimages: HashSet<sha256::Hash>,
+    /// Set of available hash256 preimages
+    pub hash256_preimages: HashSet<hash256::Hash>,
+    /// Set of available ripemd160 preimages
+    pub ripemd160_preimages: HashSet<ripemd160::Hash>,
+    /// Set of available hash160 preimages
+    pub hash160_preimages: HashSet<hash160::Hash>,
+    /// Maximum absolute timelock allowed
+    pub absolute_timelock: Option<LockTime>,
+    /// Maximum relative timelock allowed
+    pub relative_timelock: Option<Sequence>,
 }
 
 impl Assets {
     pub(crate) fn has_ecdsa_key(&self, pk: &DefiniteDescriptorKey) -> bool {
         self.keys
-            .values()
+            .iter()
             .any(|(key, can_sign)| can_sign.ecdsa && key.is_parent(pk).is_some())
     }
 
     pub(crate) fn has_taproot_internal_key(&self, pk: &DefiniteDescriptorKey) -> Option<usize> {
-        self.keys.values().find_map(|(key, can_sign)| {
+        self.keys.iter().find_map(|(key, can_sign)| {
             if !can_sign.taproot.key_spend || !key.is_parent(pk).is_some() {
                 None
             } else {
@@ -564,24 +489,10 @@ impl Assets {
         pk: &DefiniteDescriptorKey,
         tap_leaf_hash: &TapLeafHash,
     ) -> Option<usize> {
-        self.keys.values().find_map(|(key, can_sign)| {
+        self.keys.iter().find_map(|(key, can_sign)| {
             if !can_sign.taproot.script_spend.is_available(tap_leaf_hash)
                 || !key.is_parent(pk).is_some()
             {
-                None
-            } else {
-                Some(can_sign.taproot.sig_len())
-            }
-        })
-    }
-
-    pub(crate) fn has_taproot_script_key_hash(
-        &self,
-        key: &hash160::Hash,
-        tap_leaf_hash: &TapLeafHash,
-    ) -> Option<usize> {
-        self.keys.get(key).and_then(|(_, can_sign)| {
-            if !can_sign.taproot.script_spend.is_available(tap_leaf_hash) {
                 None
             } else {
                 Some(can_sign.taproot.sig_len())
@@ -605,21 +516,6 @@ impl AssetProvider<DefiniteDescriptorKey> for Assets {
         tap_leaf_hash: &TapLeafHash,
     ) -> Option<usize> {
         self.has_taproot_script_key(pk, tap_leaf_hash)
-    }
-
-    fn lookup_raw_pkh_pk<Ctx: ScriptContext>(&self, hash: &hash160::Hash) -> Option<usize> {
-        self.keys.get(hash).map(|(pk, _)| Ctx::pk_len(pk))
-    }
-
-    fn lookup_raw_pkh_ecdsa_sig<Ctx: ScriptContext>(&self, hash: &hash160::Hash) -> Option<usize> {
-        self.keys.get(hash).map(|(pk, _)| Ctx::pk_len(pk))
-    }
-
-    fn lookup_raw_pkh_tap_leaf_script_sig(
-        &self,
-        (key, lh): &(hash160::Hash, TapLeafHash),
-    ) -> Option<usize> {
-        self.has_taproot_script_key_hash(key, lh)
     }
 
     fn lookup_sha256(&self, hash: &sha256::Hash) -> bool {
@@ -663,14 +559,7 @@ impl FromIterator<DescriptorPublicKey> for Assets {
         Assets {
             keys: iter
                 .into_iter()
-                .map(|pk| {
-                    (
-                        pk.clone()
-                            .at_derivation_index(0)
-                            .to_pubkeyhash(SigType::Ecdsa),
-                        (pk, CanSign::default()),
-                    )
-                })
+                .map(|pk| (pk, CanSign::default()))
                 .collect(),
             ..Default::default()
         }

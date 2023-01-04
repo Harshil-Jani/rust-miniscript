@@ -19,12 +19,9 @@ pub(crate) trait ItemSize {
 impl<Pk: MiniscriptKey> ItemSize for Placeholder<Pk> {
     fn size(&self) -> usize {
         match self {
-            Placeholder::PubkeyHash(_, size) => *size,
             Placeholder::Pubkey(_, size) => *size,
-            Placeholder::EcdsaSigPk(_) | Placeholder::EcdsaSigHash(_) => 73,
-            Placeholder::SchnorrSig(_, _, size) | Placeholder::SchnorrSigHash(_, _, size) => {
-                size + 1
-            } // +1 for the OP_PUSH
+            Placeholder::EcdsaSigPk(_) => 73,
+            Placeholder::SchnorrSig(_, _, size) => size + 1, // +1 for the OP_PUSH
             Placeholder::HashDissatisfaction
             | Placeholder::Sha256Preimage(_)
             | Placeholder::Hash256Preimage(_)

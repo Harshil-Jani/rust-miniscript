@@ -14,7 +14,7 @@ use core::ops::Deref;
 #[cfg(feature = "std")]
 use std::error;
 
-use bitcoin::hashes::{hash160, sha256d, Hash};
+use bitcoin::hashes::{sha256d, Hash};
 use bitcoin::secp256k1::{self, Secp256k1, VerifyOnly};
 use bitcoin::util::bip32;
 use bitcoin::util::psbt::{self, PartiallySignedTransaction as Psbt};
@@ -22,7 +22,6 @@ use bitcoin::util::sighash::SighashCache;
 use bitcoin::util::taproot::{self, ControlBlock, LeafVersion, TapLeafHash};
 use bitcoin::{self, EcdsaSighashType, LockTime, SchnorrSighashType, Script, Sequence};
 
-use crate::miniscript::context::SigType;
 use crate::prelude::*;
 use crate::{
     descriptor, interpreter, DefiniteDescriptorKey, Descriptor, DescriptorPublicKey, MiniscriptKey,
@@ -286,31 +285,10 @@ impl<'psbt, Pk: MiniscriptKey + ToPublicKey> Satisfier<Pk> for PsbtInputSatisfie
             .copied()
     }
 
-    fn lookup_raw_pkh_pk(&self, pkh: &hash160::Hash) -> Option<bitcoin::PublicKey> {
-        self.psbt.inputs[self.index]
-            .bip32_derivation
-            .iter()
-            .find(|&(pubkey, _)| pubkey.to_pubkeyhash(SigType::Ecdsa) == *pkh)
-            .map(|(pubkey, _)| bitcoin::PublicKey::new(*pubkey))
-    }
-
     fn lookup_tap_control_block_map(
         &self,
     ) -> Option<&BTreeMap<ControlBlock, (bitcoin::Script, LeafVersion)>> {
         Some(&self.psbt.inputs[self.index].tap_scripts)
-    }
-
-    fn lookup_raw_pkh_tap_leaf_script_sig(
-        &self,
-        pkh: &(hash160::Hash, TapLeafHash),
-    ) -> Option<(bitcoin::secp256k1::XOnlyPublicKey, bitcoin::SchnorrSig)> {
-        self.psbt.inputs[self.index]
-            .tap_script_sigs
-            .iter()
-            .find(|&((pubkey, lh), _sig)| {
-                pubkey.to_pubkeyhash(SigType::Schnorr) == pkh.0 && *lh == pkh.1
-            })
-            .map(|((x_only_pk, _leaf_hash), sig)| (*x_only_pk, *sig))
     }
 
     fn lookup_ecdsa_sig(&self, pk: &Pk) -> Option<bitcoin::EcdsaSig> {
@@ -318,17 +296,6 @@ impl<'psbt, Pk: MiniscriptKey + ToPublicKey> Satisfier<Pk> for PsbtInputSatisfie
             .partial_sigs
             .get(&pk.to_public_key())
             .copied()
-    }
-
-    fn lookup_raw_pkh_ecdsa_sig(
-        &self,
-        pkh: &hash160::Hash,
-    ) -> Option<(bitcoin::PublicKey, bitcoin::EcdsaSig)> {
-        self.psbt.inputs[self.index]
-            .partial_sigs
-            .iter()
-            .find(|&(pubkey, _sig)| pubkey.to_pubkeyhash(SigType::Ecdsa) == *pkh)
-            .map(|(pk, sig)| (*pk, *sig))
     }
 
     fn check_after(&self, n: LockTime) -> bool {
