@@ -304,7 +304,9 @@ impl<'d> Plan<'d> {
                                 _ => {},
                             }
 
-                            data.key_origins.insert(raw_pk, (pk.master_fingerprint(), pk.full_derivation_path()));
+                            for path in pk.full_derivation_paths() {
+                                data.key_origins.insert(raw_pk, (pk.master_fingerprint(), path));
+                            }
                         }
                         _ => {}
                     }
@@ -341,15 +343,22 @@ impl<'d> Plan<'d> {
                     .insert(control_block, (tap_script, LeafVersion::TapScript));
             }
         } else {
-            input
-                .bip32_derivation
-                .extend(self.template.iter().filter_map(|item| match item {
-                    Placeholder::EcdsaSigPk(pk) => Some((
-                        pk.to_public_key().inner,
-                        (pk.master_fingerprint(), pk.full_derivation_path()),
-                    )),
-                    _ => None,
-                }));
+            input.bip32_derivation.extend(
+                self.template
+                    .iter()
+                    .filter_map(|item| match item {
+                        Placeholder::EcdsaSigPk(pk) => Some(
+                            pk.full_derivation_paths()
+                                .into_iter()
+                                .map(|path| {
+                                    (pk.to_public_key().inner, (pk.master_fingerprint(), path))
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
+                        _ => None,
+                    })
+                    .flatten(),
+            );
 
             match &self.descriptor {
                 Descriptor::Bare(_) | Descriptor::Pkh(_) | Descriptor::Wpkh(_) => {}
