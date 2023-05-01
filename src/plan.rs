@@ -41,7 +41,7 @@ use crate::{DefiniteDescriptorKey, DescriptorPublicKey, Error, MiniscriptKey, To
 
 /// Trait describing a present/missing lookup table for constructing witness templates
 ///
-/// This trait mirrors the [`Satisfier`] trait with the difference that instad of returning the
+/// This trait mirrors the [`Satisfier`] trait with the difference that instead of returning the
 /// item if it's present, it only returns a boolean to indicate its presence.
 ///
 /// This trait is automatically implemented for every type that is also a satisfier, and simply
@@ -172,7 +172,7 @@ where
 /// Calling `get_plan` on a Descriptor will return this structure,
 /// containing the cheapest spending path possible (considering the `Assets` given)
 #[derive(Debug, Clone)]
-pub struct Plan<'d> {
+pub struct Plan {
     /// This plan's witness template
     pub template: Vec<Placeholder<DefiniteDescriptorKey>>,
     /// The absolute timelock this plan uses
@@ -180,10 +180,10 @@ pub struct Plan<'d> {
     /// The relative timelock this plan uses
     pub relative_timelock: Option<Sequence>,
 
-    pub(crate) descriptor: &'d Descriptor<DefiniteDescriptorKey>,
+    pub(crate) descriptor: Descriptor<DefiniteDescriptorKey>,
 }
 
-impl<'d> Plan<'d> {
+impl Plan {
     /// Returns the witness version
     pub fn witness_version(&self) -> Option<WitnessVersion> {
         self.descriptor.desc_type().segwit_version()
@@ -720,7 +720,7 @@ mod test {
                 assets = assets.add(hashes[hi].clone());
             }
 
-            let result = desc.get_plan(&assets);
+            let result = desc.clone().get_plan(&assets);
             assert_eq!(
                 result.as_ref().map(|plan| plan.satisfaction_weight()),
                 expected,
@@ -1051,7 +1051,8 @@ mod test {
 
         let mut psbt_input = bitcoin::util::psbt::Input::default();
         let assets = Assets::new().add(internal_key);
-        desc.get_plan(&assets)
+        desc.clone()
+            .get_plan(&assets)
             .unwrap()
             .update_psbt_input(&mut psbt_input);
         assert!(
@@ -1075,7 +1076,8 @@ mod test {
 
         let mut psbt_input = bitcoin::util::psbt::Input::default();
         let assets = Assets::new().add(first_branch);
-        desc.get_plan(&assets)
+        desc.clone()
+            .get_plan(&assets)
             .unwrap()
             .update_psbt_input(&mut psbt_input);
         assert!(

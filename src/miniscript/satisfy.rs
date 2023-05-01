@@ -413,7 +413,6 @@ pub enum Placeholder<Pk: MiniscriptKey> {
     PushOne,
     /// <empty item>
     PushZero,
-
     /// Taproot leaf script
     TapScript(Script),
     /// Taproot control block

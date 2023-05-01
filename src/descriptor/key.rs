@@ -118,7 +118,7 @@ pub enum SinglePubKey {
 
 /// A [`DescriptorPublicKey`] without any wildcards.
 #[derive(Debug, Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
-pub struct DefiniteDescriptorKey(pub(super) DescriptorPublicKey);
+pub struct DefiniteDescriptorKey(DescriptorPublicKey);
 
 impl fmt::Display for DescriptorSecretKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

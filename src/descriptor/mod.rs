@@ -515,11 +515,11 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
 
 impl Descriptor<DefiniteDescriptorKey> {
     /// Returns a plan if the provided assets are sufficient to produce a non-malleable satisfaction
-    pub fn get_plan<'d, P>(&'d self, provider: &P) -> Option<Plan<'d>>
+    pub fn get_plan<P>(self, provider: &P) -> Option<Plan>
     where
         P: AssetProvider<DefiniteDescriptorKey>,
     {
-        let satisfaction = match *self {
+        let satisfaction = match self {
             Descriptor::Bare(ref bare) => bare.get_plan_satisfaction(provider),
             Descriptor::Pkh(ref pkh) => pkh.get_plan_satisfaction(provider),
             Descriptor::Wpkh(ref wpkh) => wpkh.get_plan_satisfaction(provider),
@@ -541,11 +541,11 @@ impl Descriptor<DefiniteDescriptorKey> {
     }
 
     /// Returns a plan if the provided assets are sufficient to produce a malleable satisfaction
-    pub fn get_plan_mall<'d, P>(&'d self, provider: &P) -> Option<Plan>
+    pub fn get_plan_mall<P>(self, provider: &P) -> Option<Plan>
     where
         P: AssetProvider<DefiniteDescriptorKey>,
     {
-        let satisfaction = match *self {
+        let satisfaction = match self {
             Descriptor::Bare(ref bare) => bare.get_plan_satisfaction_mall(provider),
             Descriptor::Pkh(ref pkh) => pkh.get_plan_satisfaction_mall(provider),
             Descriptor::Wpkh(ref wpkh) => wpkh.get_plan_satisfaction_mall(provider),
