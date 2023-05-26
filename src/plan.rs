@@ -812,7 +812,19 @@ mod test {
             // expected weight: 4 (scriptSig len) + 1 (witness len) + 73 (sig) * 3 + 1 (dummy push)
             (vec![0, 1, 3], vec![], None, None, Some(4 + 1 + 73 * 3 + 1)),
         ];
+        test_inner(&desc, keys.clone(), hashes.clone(), tests);
 
+        let desc = format!(
+            "wsh(multi(2,{},{},{}))",
+            keys[0], keys[1], keys[2]
+        );
+
+        let tests = vec![
+            (vec![], vec![], None, None, None),
+            (vec![0, 1], vec![], None, None, Some(4+1+73*2+1)),
+            // expected weight: 4 (scriptSig len) + 1 (witness len) + 73 (sig) * 3 + 1 (dummy push)
+            (vec![0, 1, 3], vec![], None, None, Some(4 + 1 + 73 * 2 + 1)),
+        ];
         test_inner(&desc, keys, hashes, tests);
     }
 
@@ -825,6 +837,10 @@ mod test {
             .unwrap(),
             DescriptorPublicKey::from_str(
                 "0257f4a2816338436cccabc43aa724cf6e69e43e84c3c8a305212761389dd73a8a",
+            )
+            .unwrap(),
+            DescriptorPublicKey::from_str(
+                "033ad2d191da4f39512adbaac320cae1f12f298386a4e9d43fd98dec7cf5db2ac9",
             )
             .unwrap(),
         ];
@@ -879,8 +895,71 @@ mod test {
                 Some(153),
             ), // incompatible timelock
         ];
+        test_inner(&desc, keys.clone(), hashes.clone(), tests);
 
-        test_inner(&desc, keys, hashes, tests);
+        // Given thresh k=3 and total policies = 3
+        let desc = format!(
+            "wsh(thresh(3,pk({}),s:pk({}),sln:older(144)))",
+            keys[0], keys[1],
+        );
+
+        let tests = vec![
+            (vec![], vec![], None, None, None),
+            (vec![], vec![], Some(Sequence(1000)), None, None),
+            (vec![0], vec![], None, None, None),
+            (vec![0], vec![], Some(Sequence(1000)), None, None),
+            (vec![0, 1], vec![], None, None, None),
+            // expected weight = 4(scriptSig len) + 1(witness len) + 73*2 (sig) +  OP_PUSHBYTE_1
+            (vec![0, 1], vec![], Some(Sequence(1000)), None, Some(152)),
+            // incompatible timelock so this will never satisfy thresh = 3 since timelock policy will not be completed.
+            (
+                vec![0, 1],
+                vec![],
+                Some(Sequence::from_512_second_intervals(10)),
+                None,
+                None,
+            ),
+        ];
+        test_inner(&desc, keys.clone(), hashes.clone(), tests);
+
+        // Given thresh k=3 and total policies = 4
+        let desc = format!(
+            "wsh(thresh(3,pk({}),s:pk({}),s:pk({}),sln:older(144)))",
+            keys[0], keys[1], keys[2]
+        );
+
+        let tests = vec![
+            (vec![], vec![], None, None, None),
+            (vec![], vec![], Some(Sequence(1000)), None, None),
+            (vec![0], vec![], None, None, None),
+            (vec![0], vec![], Some(Sequence(1000)), None, None),
+            // Weird Case : If I copy keys[0] to keys[2] then it fails and expects 153.
+            (vec![0, 1], vec![], None, None, None),
+            // 4+1+73*2+2 (OP_PUSHBYTE_1)
+            (vec![0, 1], vec![], Some(Sequence(1000)), None, Some(153)),
+            //4+1+73*3+1 (OP_PUSHBYTE_1). Expecting 225 . What about extra 1 Byte ?
+            (vec![0, 1, 2], vec![], None, None, Some(226)),
+            //4+1+73*2+1 (OP_PUSHBYTE_1)+1(OP_ZERO)
+            (vec![0, 1, 2], vec![], Some(Sequence(1000)), None, Some(153)),
+        ];
+
+        test_inner(&desc, keys.clone(), hashes.clone(), tests);
+
+        // Given thresh k=1 and total policies = 2
+        let desc = format!("wsh(thresh(1,pk({}),sln:older(144)))", keys[0]);
+
+        let tests = vec![
+            (vec![], vec![], None, None, None),
+            // 4+1+73*0+1(OP_PUSHBYTE_1)
+            (vec![], vec![], Some(Sequence(1000)), None, Some(7)),
+            // Why not satisfied ? Already have 1 key to sign. Expected 4+1+73*1+1(OP_PUSH_BYTE_1)
+            (vec![0], vec![], None, None, None),
+            // Expecting 4+1+73*0+1 (OP_PUSH_BYTE_1) + 1 (OP_ZERO)
+            (vec![0], vec![], Some(Sequence(1000)), None, Some(7)),
+        ];
+
+        test_inner(&desc, keys.clone(), hashes.clone(), tests);
+        // Tried with K=1 and 3 Policies and it was identical to 1|2. So similar.
     }
 
     #[test]
