@@ -12,9 +12,10 @@ use miniscript::bitcoin::util::psbt::PartiallySignedTransaction as Psbt;
 use miniscript::bitcoin::{
     self, secp256k1, Address, Network, OutPoint, Script, Sequence, Transaction, TxIn, TxOut,
 };
+use miniscript::plan::Assets;
 use miniscript::psbt::{PsbtExt, PsbtInputExt};
 use miniscript::Descriptor;
-
+use miniscript::DescriptorPublicKey;
 fn main() {
     let secp256k1 = secp256k1::Secp256k1::new();
 
@@ -114,15 +115,47 @@ fn main() {
     });
 
     // Generating signatures & witness data
-
+    let mut assets = Assets::new();
+    assets = assets.add(
+        DescriptorPublicKey::from_str(
+            "027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de",
+        )
+        .unwrap(),
+    );
+    // assets = assets.add(
+    //     DescriptorPublicKey::from_str(
+    //         "032d672a1a91cc39d154d366cd231983661b0785c7f27bc338447565844f4a6813",
+    //     )
+    //     .unwrap(),
+    // );
+    // assets = assets.add(
+    //     DescriptorPublicKey::from_str(
+    //         "03417129311ed34c242c012cd0a3e0b9bca0065f742d0dfb63c78083ea6a02d4d9",
+    //     )
+    //     .unwrap(),
+    // );
+    // assets = assets.add(
+    //     DescriptorPublicKey::from_str(
+    //         "025a687659658baeabdfc415164528065be7bcaade19342241941e556557f01e28",
+    //     )
+    //     .unwrap(),
+    // );
+    let result = bridge_descriptor.clone().get_plan(&assets);
+    // println!("{:?}",result.clone().unwrap().template);
     let mut input = psbt::Input::default();
-    input
-        .update_with_descriptor_unchecked(&bridge_descriptor)
-        .unwrap();
+    result.unwrap().update_psbt_input(&mut input);
+    // panic!("{:#?}",input);
+    // Generating signatures & witness data
+
+    // let mut input = psbt::Input::default();
+    // input
+    //     .update_with_descriptor_unchecked(&bridge_descriptor)
+    //     .unwrap();
 
     input.witness_utxo = Some(witness_utxo.clone());
     psbt.inputs.push(input);
     psbt.outputs.push(psbt::Output::default());
+    // panic!("{:#?}", psbt.inputs[0]);
 
     let mut sighash_cache = SighashCache::new(&psbt.unsigned_tx);
 
@@ -140,6 +173,7 @@ fn main() {
     // Finally construct the signature and add to psbt
     let sig1 = secp256k1.sign_ecdsa(&msg, &sk1);
     let pk1 = backup1_private.public_key(&secp256k1);
+    // assets = assets.add(pk1);
     assert!(secp256k1.verify_ecdsa(&msg, &sig1, &pk1.inner).is_ok());
 
     // Second key just in case
@@ -155,7 +189,7 @@ fn main() {
         },
     );
 
-    println!("{:#?}", psbt);
+    println!("{:#?}", psbt.inputs[0]);
 
     let serialized = serialize(&psbt);
     println!("{}", base64::encode(&serialized));

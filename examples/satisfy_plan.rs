@@ -62,6 +62,8 @@ fn main() {
     // Available Hashes for planning second Asset
     let hashes_2 = vec![];
 
+    // define the psbt_input
+    let mut psbt_input = bitcoin::util::psbt::Input::default();
     // Constructing the first asset with available signatures and hashes
     let mut assets_1 = Assets::new();
     // We have the relative timelock present
@@ -74,7 +76,9 @@ fn main() {
     // Finally getting the satisfaction weight
     // Expected weight : 4 + 1 + 73*1 + 2 = 80
     let weight_1 = result_1.as_ref().map(|plan| plan.satisfaction_weight());
-
+    // Adding the metadata on the PSBT Input
+    result_1.unwrap().update_psbt_input(&mut psbt_input);
+    println!("{:?}",psbt_input);
     // Constructing the second asset with available signatures and hashes
     let mut assets_2 = Assets::new();
     // We have 2 Keys available

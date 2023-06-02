@@ -814,14 +814,11 @@ mod test {
         ];
         test_inner(&desc, keys.clone(), hashes.clone(), tests);
 
-        let desc = format!(
-            "wsh(multi(2,{},{},{}))",
-            keys[0], keys[1], keys[2]
-        );
+        let desc = format!("wsh(multi(2,{},{},{}))", keys[0], keys[1], keys[2]);
 
         let tests = vec![
             (vec![], vec![], None, None, None),
-            (vec![0, 1], vec![], None, None, Some(4+1+73*2+1)),
+            (vec![0, 1], vec![], None, None, Some(4 + 1 + 73 * 2 + 1)),
             // expected weight: 4 (scriptSig len) + 1 (witness len) + 73 (sig) * 3 + 1 (dummy push)
             (vec![0, 1, 3], vec![], None, None, Some(4 + 1 + 73 * 2 + 1)),
         ];
@@ -933,13 +930,9 @@ mod test {
             (vec![], vec![], Some(Sequence(1000)), None, None),
             (vec![0], vec![], None, None, None),
             (vec![0], vec![], Some(Sequence(1000)), None, None),
-            // Weird Case : If I copy keys[0] to keys[2] then it fails and expects 153.
             (vec![0, 1], vec![], None, None, None),
-            // 4+1+73*2+2 (OP_PUSHBYTE_1)
             (vec![0, 1], vec![], Some(Sequence(1000)), None, Some(153)),
-            //4+1+73*3+1 (OP_PUSHBYTE_1). Expecting 225 . What about extra 1 Byte ?
             (vec![0, 1, 2], vec![], None, None, Some(226)),
-            //4+1+73*2+1 (OP_PUSHBYTE_1)+1(OP_ZERO)
             (vec![0, 1, 2], vec![], Some(Sequence(1000)), None, Some(153)),
         ];
 
