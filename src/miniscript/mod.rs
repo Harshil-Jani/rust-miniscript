@@ -18,6 +18,7 @@ use core::{fmt, hash, str};
 
 use bitcoin::blockdata::script;
 use bitcoin::util::taproot::{LeafVersion, TapLeafHash};
+use bitcoin::hashes::hash160;
 
 use self::analyzable::ExtParams;
 pub use self::context::{BareCtx, Legacy, Segwitv0, Tap};
@@ -328,6 +329,11 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Miniscript<Pk, Ctx> {
             phantom: PhantomData,
         };
         Ok(ms)
+    }
+
+    /// Substitutes raw public keys hashes with the public keys as provided by map.
+    pub fn substitute_raw_pkh(&self, pk_map: &HashMap<hash160::Hash, Pk>) -> Miniscript<Pk, Ctx> {
+        Miniscript::from_ast(self.node.substitute_raw_pkh(pk_map)).expect("type check failed")
     }
 }
 

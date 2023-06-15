@@ -1,0 +1,142 @@
+Bridge pubkey script: Script(OP_0 OP_PUSHBYTES_32 c0ebf552acd2a6f5dee4e067daaef17b3521e283aeaa44a475278617e3d2238a)
+Bridge address: bcrt1qcr4l254v62n0thhyupna4th30v6jrc5r464yffr4y7rp0c7jyw9q3u8kn9
+Weight for witness satisfaction cost 444
+Master public key: 027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de
+Backup1 public key: 032d672a1a91cc39d154d366cd231983661b0785c7f27bc338447565844f4a6813
+Backup2 public key: 03417129311ed34c242c012cd0a3e0b9bca0065f742d0dfb63c78083ea6a02d4d9
+Backup3 public key: 025a687659658baeabdfc415164528065be7bcaade19342241941e556557f01e28
+PartiallySignedTransaction {
+    unsigned_tx: Transaction {
+        version: 2,
+        lock_time: PackedLockTime(
+            5000,
+        ),
+        input: [
+            TxIn {
+                previous_output: OutPoint {
+                    txid: c18f94f58a138566df46936a0a3e60987f06d257d8c3b139f14d49f65ce47a74,
+                    vout: 1,
+                },
+                script_sig: Script(),
+                sequence: Sequence(
+                    26,
+                ),
+                witness: Witness {
+                    content: [],
+                    witness_elements: 0,
+                    last: 0,
+                    second_to_last: 0,
+                },
+            },
+        ],
+        output: [
+            TxOut {
+                value: 19999500,
+                script_pubkey: Script(OP_0 OP_PUSHBYTES_20 836d0a0bb55ea1967437d2c456b532132f66d8d9),
+            },
+            TxOut {
+                value: 80000000,
+                script_pubkey: Script(OP_0 OP_PUSHBYTES_32 c0ebf552acd2a6f5dee4e067daaef17b3521e283aeaa44a475278617e3d2238a),
+            },
+        ],
+    },
+    version: 0,
+    xpub: {},
+    proprietary: {},
+    unknown: {},
+    inputs: [
+        Input {
+            non_witness_utxo: None,
+            witness_utxo: Some(
+                TxOut {
+                    value: 100000000,
+                    script_pubkey: Script(OP_0 OP_PUSHBYTES_32 c0ebf552acd2a6f5dee4e067daaef17b3521e283aeaa44a475278617e3d2238a),
+                },
+            ),
+            partial_sigs: {
+                PublicKey {
+                    compressed: true,
+                    inner: PublicKey(
+                        13684a4f8465754438c37bf2c785071b66831923cd66d354d139cc911a2a672d4183a1363bf302d64171aa7e32a6586fd1410b48b4e07c9241aa8d9cf8beda7a,
+                    ),
+                }: EcdsaSig {
+                    sig: 304502210090e1f08d5d27d8d6cdad8b2e46b9349f7e588e4787684cc7e23608b722cb457f0220201e73fdc24d367283ba75d2653cda465486fb9abd611c4491aa39e4ff5cb3d3,
+                    hash_ty: All,
+                },
+            },
+            sighash_type: None,
+            redeem_script: None,
+            witness_script: Some(
+                Script(OP_PUSHBYTES_33 027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de OP_CHECKSIG OP_NOTIF OP_DUP OP_HASH160 OP_PUSHBYTES_20 dbd7a2efb12c6682dda6ddb19e6fad03dd93254a OP_EQUALVERIFY OP_CHECKSIG OP_TOALTSTACK OP_DUP OP_HASH160 OP_PUSHBYTES_20 b51d25d2dfe3a507db591c5a1b38f0821f3b583c OP_EQUALVERIFY OP_CHECKSIG OP_FROMALTSTACK OP_ADD OP_TOALTSTACK OP_DUP OP_HASH160 OP_PUSHBYTES_20 b0468e1c215f2ace1b7f21bdfcd2879d36b30e3f OP_EQUALVERIFY OP_CHECKSIG OP_FROMALTSTACK OP_ADD OP_PUSHNUM_1 OP_EQUALVERIFY OP_ENDIF OP_PUSHNUM_1),
+            ),
+            bip32_derivation: {
+                PublicKey(
+                    281ef05765551e9441223419deaabce75b0628451615c4dfabae8b655976685a085810b2de82716c3c7353d9ba069bc7de5223dc07cb55646f10f5e14272123a,
+                ): (
+                    b0468e1c,
+                    m,
+                ),
+                PublicKey(
+                    dec00e3fc2a03745c56ab1d7efefc3a94328f7af22efcabc49b7e14f4565357ac242cb0cf0d52cbbb6b6261c937c19be773803ebf58eeaf893b2aecc62197a9b,
+                ): (
+                    22e45bc5,
+                    m,
+                ),
+                PublicKey(
+                    13684a4f8465754438c37bf2c785071b66831923cd66d354d139cc911a2a672d4183a1363bf302d64171aa7e32a6586fd1410b48b4e07c9241aa8d9cf8beda7a,
+                ): (
+                    dbd7a2ef,
+                    m,
+                ),
+                PublicKey(
+                    d9d4026aea8380c763fb0d2d745f06a0bcb9e0a3d02c012c244cd31e31297141d30771c42c750af0a51033ea393a8c27006cafc8edfc0ed11408d8aef0d62b94,
+                ): (
+                    b51d25d2,
+                    m,
+                ),
+            },
+            final_script_sig: None,
+            final_script_witness: None,
+            ripemd160_preimages: {},
+            sha256_preimages: {},
+            hash160_preimages: {},
+            hash256_preimages: {},
+            tap_key_sig: None,
+            tap_script_sigs: {},
+            tap_scripts: {},
+            tap_key_origins: {},
+            tap_internal_key: None,
+            tap_merkle_root: None,
+            proprietary: {},
+            unknown: {},
+        },
+    ],
+    outputs: [
+        Output {
+            redeem_script: None,
+            witness_script: None,
+            bip32_derivation: {},
+            tap_internal_key: None,
+            tap_tree: None,
+            tap_key_origins: {},
+            proprietary: {},
+            unknown: {},
+        },
+    ],
+}
+cHNidP8BAH0CAAAAAXR65Fz2SU3xObHD2FfSBn+YYD4KapNG32aFE4r1lI/BAQAAAAAaAAAAAgwrMQEAAAAAFgAUg20KC7VeoZZ0N9LEVrUyEy9m2NkAtMQEAAAAACIAIMDr9VKs0qb13uTgZ9qu8Xs1IeKDrqpEpHUnhhfj0iOKiBMAAAABASsA4fUFAAAAACIAIMDr9VKs0qb13uTgZ9qu8Xs1IeKDrqpEpHUnhhfj0iOKIgIDLWcqGpHMOdFU02bNIxmDZhsHhcfye8M4RHVlhE9KaBNIMEUCIQCQ4fCNXSfY1s2tiy5GuTSffliOR4doTMfiNgi3IstFfwIgIB5z/cJNNnKDunXSZTzaRlSG+5q9YRxEkao55P9cs9MBAQV5IQJ6NWVFT+G3SbzK7yKv9yhDqcPv79exasVFN6DCPw7A3qxkdqkU29ei77EsZoLdpt2xnm+tA92TJUqIrGt2qRS1HSXS3+OlB9tZHFobOPCCHztYPIisbJNrdqkUsEaOHCFfKs4bfyG9/NKHnTazDj+IrGyTUYhoUSIGAlpodllli66r38QVFkUoBlvnvKreGTQiQZQeVWVX8B4oBLBGjhwiBgJ6NWVFT+G3SbzK7yKv9yhDqcPv79exasVFN6DCPw7A3gQi5FvFIgYDLWcqGpHMOdFU02bNIxmDZhsHhcfye8M4RHVlhE9KaBME29ei7yIGA0FxKTEe00wkLAEs0KPgubygBl90LQ37Y8eAg+pqAtTZBLUdJdIAAA==
+Key is PublicKey {
+    compressed: true,
+    inner: PublicKey(
+        13684a4f8465754438c37bf2c785071b66831923cd66d354d139cc911a2a672d4183a1363bf302d64171aa7e32a6586fd1410b48b4e07c9241aa8d9cf8beda7a,
+    ),
+}
+{
+    dbd7a2efb12c6682dda6ddb19e6fad03dd93254a: PublicKey {
+        compressed: true,
+        inner: PublicKey(
+            13684a4f8465754438c37bf2c785071b66831923cd66d354d139cc911a2a672d4183a1363bf302d64171aa7e32a6586fd1410b48b4e07c9241aa8d9cf8beda7a,
+        ),
+    },
+}
+This is our descriptor wsh([B/ufsm]t:[V/fsm]or_c([B/onduesm]c:[K/onduesm]pk_k(PublicKey { compressed: true, inner: PublicKey(dec00e3fc2a03745c56ab1d7efefc3a94328f7af22efcabc49b7e14f4565357ac242cb0cf0d52cbbb6b6261c937c19be773803ebf58eeaf893b2aecc62197a9b) }),[V/fsm]v:[B/duesm]thresh(1,[B/nduesm]c:[K/nduesm]pk_h(PublicKey { compressed: true, inner: PublicKey(13684a4f8465754438c37bf2c785071b66831923cd66d354d139cc911a2a672d4183a1363bf302d64171aa7e32a6586fd1410b48b4e07c9241aa8d9cf8beda7a) }),[W/duesm]a[B/nduesm]c:[K/nduesm]expr_raw_pk_h(b51d25d2dfe3a507db591c5a1b38f0821f3b583c),[W/duesm]a[B/nduesm]c:[K/nduesm]expr_raw_pk_h(b0468e1c215f2ace1b7f21bdfcd2879d36b30e3f))))

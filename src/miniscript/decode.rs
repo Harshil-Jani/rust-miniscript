@@ -124,6 +124,7 @@ enum NonTerm {
 /// with Miniscript ASTs should use the [`Miniscript`] APIs.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Terminal<Pk: MiniscriptKey, Ctx: ScriptContext> {
+    // Terminal <'a, Pk: 'a + MiniscriptKey, Ctx: 'a + ScriptContext>
     /// `1`
     True,
     /// `0`

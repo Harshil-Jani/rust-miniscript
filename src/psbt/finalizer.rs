@@ -8,19 +8,20 @@
 //! `https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki`
 //!
 
-use bitcoin::blockdata::witness::Witness;
-use bitcoin::secp256k1::{self, Secp256k1};
-use bitcoin::util::key::XOnlyPublicKey;
-use bitcoin::util::sighash::Prevouts;
-use bitcoin::util::taproot::LeafVersion;
-use bitcoin::{self, PublicKey, Script, TxOut};
-
 use super::{sanity_check, Error, InputError, Psbt, PsbtInputSatisfier};
 use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
     interpreter, BareCtx, Descriptor, ExtParams, Legacy, Miniscript, Satisfier, Segwitv0, Tap,
 };
+use bitcoin::blockdata::witness::Witness;
+use bitcoin::hashes::hash160;
+use bitcoin::secp256k1::{self, Secp256k1};
+use bitcoin::util::key::XOnlyPublicKey;
+use bitcoin::util::sighash::Prevouts;
+use bitcoin::util::taproot::LeafVersion;
+use bitcoin::{self, PublicKey, Script, TxOut};
+use std::collections::HashMap;
 
 // Satisfy the taproot descriptor. It is not possible to infer the complete
 // descriptor from psbt because the information about all the scripts might not
@@ -123,6 +124,21 @@ pub(super) fn prevouts(psbt: &Psbt) -> Result<Vec<&bitcoin::TxOut>, super::Error
 // we want to move the script is probably already created
 // and we want to satisfy it in any way possible.
 fn get_descriptor(psbt: &Psbt, index: usize) -> Result<Descriptor<PublicKey>, InputError> {
+    let mut hash_map: HashMap<hash160::Hash, PublicKey> = HashMap::new();
+    // Let's try to manually input the correct hash_map element.
+    let psbt_inputs = psbt.inputs.clone();
+    for psbt_input in psbt_inputs {
+        // Partial Sigs are not enough since we don't get all the keys and hashes.
+        // Use BIP32 Derviation to get set of all possible keys.
+        let public_keys = psbt_input.bip32_derivation.keys();
+        for key in public_keys {
+            // Convert bitcoin::secp256k1::PublicKey into just bitcoin::PublicKey
+            let bitcoin_key = bitcoin::PublicKey::new(*key);
+            let hash = bitcoin_key.pubkey_hash().as_hash();
+            hash_map.insert(hash, bitcoin_key);
+        }
+        println!("{:#?}", hash_map);
+    }
     // Figure out Scriptpubkey
     let script_pubkey = get_scriptpubkey(psbt, index)?;
     let inp = &psbt.inputs[index];
@@ -179,7 +195,10 @@ fn get_descriptor(psbt: &Psbt, index: usize) -> Result<Descriptor<PublicKey>, In
                 witness_script,
                 &ExtParams::allow_all(),
             )?;
-            Ok(Descriptor::new_wsh(ms)?)
+            println!("Here {} and {:#?}",ms.substitute_raw_pkh(&hash_map),hash_map);
+            let desc = Descriptor::new_wsh(ms.substitute_raw_pkh(&hash_map))?;
+            println!("Desc : {}",desc);
+            Ok(Descriptor::new_wsh(ms.substitute_raw_pkh(&hash_map))?)
         } else {
             Err(InputError::MissingWitnessScript)
         }
@@ -206,7 +225,7 @@ fn get_descriptor(psbt: &Psbt, index: usize) -> Result<Descriptor<PublicKey>, In
                             witness_script,
                             &ExtParams::allow_all(),
                         )?;
-                        Ok(Descriptor::new_sh_wsh(ms)?)
+                        Ok(Descriptor::new_sh_wsh(ms.substitute_raw_pkh(&hash_map))?)
                     } else {
                         Err(InputError::MissingWitnessScript)
                     }
@@ -231,7 +250,7 @@ fn get_descriptor(psbt: &Psbt, index: usize) -> Result<Descriptor<PublicKey>, In
                             redeem_script,
                             &ExtParams::allow_all(),
                         )?;
-                        Ok(Descriptor::new_sh(ms)?)
+                        Ok(Descriptor::new_sh(ms.substitute_raw_pkh(&hash_map))?)
                     } else {
                         Err(InputError::MissingWitnessScript)
                     }
@@ -250,7 +269,7 @@ fn get_descriptor(psbt: &Psbt, index: usize) -> Result<Descriptor<PublicKey>, In
             script_pubkey,
             &ExtParams::allow_all(),
         )?;
-        Ok(Descriptor::new_bare(ms)?)
+        Ok(Descriptor::new_bare(ms.substitute_raw_pkh(&hash_map))?)
     }
 }
 
@@ -368,7 +387,8 @@ fn finalize_input_helper<C: secp256k1::Verification>(
         } else {
             // Get a descriptor for this input.
             let desc = get_descriptor(psbt, index).map_err(|e| Error::InputError(e, index))?;
-
+            println!("This is our descriptor {}",desc);
+            // Call here
             //generate the satisfaction witness and scriptsig
             let sat = PsbtInputSatisfier::new(psbt, index);
             if !allow_mall {
