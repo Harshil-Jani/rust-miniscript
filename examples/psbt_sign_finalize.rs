@@ -10,15 +10,16 @@ use miniscript::bitcoin::psbt::PartiallySignedTransaction as Psbt;
 use miniscript::bitcoin::{
     self, psbt, secp256k1, Address, Network, OutPoint, Script, Sequence, Transaction, TxIn, TxOut,
 };
+use miniscript::plan::Assets;
 use miniscript::psbt::{PsbtExt, PsbtInputExt};
-use miniscript::Descriptor;
+use miniscript::{Descriptor, DescriptorPublicKey};
 
 fn main() {
+    // Defining the descriptor
     let secp256k1 = secp256k1::Secp256k1::new();
-
     let s = "wsh(t:or_c(pk(027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de),v:thresh(1,pkh(032d672a1a91cc39d154d366cd231983661b0785c7f27bc338447565844f4a6813),a:pkh(03417129311ed34c242c012cd0a3e0b9bca0065f742d0dfb63c78083ea6a02d4d9),a:pkh(025a687659658baeabdfc415164528065be7bcaade19342241941e556557f01e28))))#7hut9ukn";
-    let bridge_descriptor = Descriptor::from_str(&s).unwrap();
-    //let bridge_descriptor = Descriptor::<bitcoin::PublicKey>::from_str(&s).expect("parse descriptor string");
+    let bridge_descriptor = Descriptor::from_str(&s).expect("parse descriptor string");
+
     assert!(bridge_descriptor.sanity_check().is_ok());
     println!(
         "Bridge pubkey script: {}",
@@ -68,6 +69,7 @@ fn main() {
         _backup3_private.public_key(&secp256k1)
     );
 
+    // Create a spending transaction
     let spend_tx = Transaction {
         version: 2,
         lock_time: bitcoin::absolute::LockTime::from_consensus(5000),
@@ -97,12 +99,13 @@ fn main() {
 
     let (outpoint, witness_utxo) = get_vout(&depo_tx, &bridge_descriptor.script_pubkey());
 
+    // Defining the Transaction Input
     let mut txin = TxIn::default();
     txin.previous_output = outpoint;
-
     txin.sequence = Sequence::from_height(26); //Sequence::MAX; //
     psbt.unsigned_tx.input.push(txin);
 
+    // Defining the Transaction Output
     psbt.unsigned_tx.output.push(TxOut {
         script_pubkey: receiver.script_pubkey(),
         value: amount / 5 - 500,
@@ -113,14 +116,30 @@ fn main() {
         value: amount * 4 / 5,
     });
 
-    // Generating signatures & witness data
+    // Plan the Transaction using available assets
+    // The descriptor is : or(pk(A),thresh(1,pkh(B),pkh(C),pkh(D)))
+    // For the context of planning in this example, We will only provide the key A as an asset
+    // This will satisfy the pk(A) and since we have an OR, This should be sufficient to satisfy the given policy.
+    let mut assets = Assets::new();
+    assets = assets.add(
+        DescriptorPublicKey::from_str(
+            "027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de",
+        )
+        .unwrap(),
+    );
 
+    // Obtain the result of the plan based on provided assets
+    let result = bridge_descriptor.clone().get_plan(&assets);
+    
+    // Creating a PSBT Input
     let mut input = psbt::Input::default();
+    result.unwrap().update_psbt_input(&mut input);
     input
         .update_with_descriptor_unchecked(&bridge_descriptor)
         .unwrap();
-
     input.witness_utxo = Some(witness_utxo.clone());
+    
+    // Push the PSBT Input and declare an PSBT Output Structure
     psbt.inputs.push(input);
     psbt.outputs.push(psbt::Output::default());
 
