@@ -16,11 +16,11 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::{PublicKey, Script, ScriptBuf, TxOut, Witness};
 
 use super::{sanity_check, Error, InputError, Psbt, PsbtInputSatisfier};
-use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
     interpreter, BareCtx, Descriptor, ExtParams, Legacy, Miniscript, Satisfier, Segwitv0, Tap,
 };
+use crate::{prelude::*, SigType, ToPublicKey};
 
 // Satisfy the taproot descriptor. It is not possible to infer the complete
 // descriptor from psbt because the information about all the scripts might not
@@ -31,6 +31,19 @@ fn construct_tap_witness(
     sat: &PsbtInputSatisfier,
     allow_mall: bool,
 ) -> Result<Vec<Vec<u8>>, InputError> {
+    let mut hash_map: BTreeMap<hash160::Hash, bitcoin::key::XOnlyPublicKey> = BTreeMap::new();
+    let psbt_inputs = &sat.psbt.inputs;
+    for psbt_input in psbt_inputs {
+        // Use Tap Key Origins to get set of all possible keys.
+        let public_keys = psbt_input.tap_key_origins.keys();
+        for key in public_keys {
+            let bitcoin_key = *key;
+            // Convert PubKeyHash into Hash::hash160
+            let hash = bitcoin_key.to_pubkeyhash(SigType::Schnorr);
+            // Insert pair in HashMap
+            hash_map.insert(hash, bitcoin_key);
+        }
+    }
     assert!(spk.is_v1_p2tr());
 
     // try the key spend path first
@@ -53,7 +66,7 @@ fn construct_tap_witness(
                 script,
                 &ExtParams::allow_all(),
             ) {
-                Ok(ms) => ms,
+                Ok(ms) => ms.substitute_raw_pkh(&hash_map),
                 Err(..) => continue, // try another script
             };
             let mut wit = if allow_mall {
