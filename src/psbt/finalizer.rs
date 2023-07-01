@@ -16,11 +16,12 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::{PublicKey, Script, ScriptBuf, TxOut, Witness};
 
 use super::{sanity_check, Error, InputError, Psbt, PsbtInputSatisfier};
+use crate::prelude::*;
 use crate::util::witness_size;
 use crate::{
-    interpreter, BareCtx, Descriptor, ExtParams, Legacy, Miniscript, Satisfier, Segwitv0, Tap,
+    interpreter, BareCtx, Descriptor, ExtParams, Legacy, Miniscript, Satisfier, Segwitv0, SigType,
+    Tap, ToPublicKey,
 };
-use crate::{prelude::*, SigType, ToPublicKey};
 
 // Satisfy the taproot descriptor. It is not possible to infer the complete
 // descriptor from psbt because the information about all the scripts might not

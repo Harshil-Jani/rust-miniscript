@@ -130,7 +130,7 @@ fn main() {
 
     // Obtain the result of the plan based on provided assets
     let result = bridge_descriptor.clone().get_plan(&assets);
-    
+
     // Creating a PSBT Input
     let mut input = psbt::Input::default();
     result.unwrap().update_psbt_input(&mut input);
@@ -138,7 +138,7 @@ fn main() {
         .update_with_descriptor_unchecked(&bridge_descriptor)
         .unwrap();
     input.witness_utxo = Some(witness_utxo.clone());
-    
+
     // Push the PSBT Input and declare an PSBT Output Structure
     psbt.inputs.push(input);
     psbt.outputs.push(psbt::Output::default());

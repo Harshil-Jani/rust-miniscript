@@ -142,7 +142,7 @@ fn main() {
         .update_with_descriptor_unchecked(&bridge_descriptor)
         .unwrap();
     input.witness_utxo = Some(witness_utxo.clone());
-    
+
     // Push the PSBT Input and declare an PSBT Output Structure
     psbt.inputs.push(input);
     psbt.outputs.push(psbt::Output::default());
