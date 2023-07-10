@@ -15,9 +15,29 @@ use miniscript::psbt::{PsbtExt, PsbtInputExt};
 use miniscript::{Descriptor, DescriptorPublicKey};
 
 fn main() {
-    // Defining the descriptor
+    // Defining the descriptor keys
     let secp256k1 = secp256k1::Secp256k1::new();
-    let s = "wsh(t:or_c(pk(027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de),v:thresh(1,pkh(032d672a1a91cc39d154d366cd231983661b0785c7f27bc338447565844f4a6813),a:pkh(03417129311ed34c242c012cd0a3e0b9bca0065f742d0dfb63c78083ea6a02d4d9),a:pkh(025a687659658baeabdfc415164528065be7bcaade19342241941e556557f01e28))))#7hut9ukn";
+    let keys = vec![
+        "027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de",
+        "032d672a1a91cc39d154d366cd231983661b0785c7f27bc338447565844f4a6813",
+        "03417129311ed34c242c012cd0a3e0b9bca0065f742d0dfb63c78083ea6a02d4d9",
+        "025a687659658baeabdfc415164528065be7bcaade19342241941e556557f01e28",
+    ];
+    // The wsh descriptor indicates a Witness Script Hash, meaning the descriptor is for a SegWit script.
+    // wsh(or(pk(A),thresh(1,pkh(B),pkh(C),pkh(D))))
+
+    // Let's break it down:
+    // t:or_c specifies an "or" construct, which means the script can be satisfied by one of the given conditions:
+    // pk(A) OR thresh(1,pkh(B),pkh(C),pkh(D))
+    // Inside threshold condition atleast 1 out of all given conditions should satisfy.
+
+    // By constructing transactions using this wsh descriptor and signing them appropriately,
+    // you can create flexible spending policies that enable different spending paths and conditions depending on the
+    // transaction's inputs and outputs.
+    let s = format!(
+        "wsh(t:or_c(pk({}),v:thresh(1,pkh({}),a:pkh({}),a:pkh({}))))#7hut9ukn",
+        keys[0], keys[1], keys[2], keys[3]
+    );
     let bridge_descriptor = Descriptor::from_str(&s).expect("parse descriptor string");
 
     assert!(bridge_descriptor.sanity_check().is_ok());
@@ -116,10 +136,12 @@ fn main() {
         value: amount * 4 / 5,
     });
 
-    // Plan the Transaction using available assets
-    // The descriptor is : or(pk(A),thresh(1,pkh(B),pkh(C),pkh(D)))
-    // For the context of planning in this example, We will only provide the key A as an asset
-    // This will satisfy the pk(A) and since we have an OR, This should be sufficient to satisfy the given policy.
+    // Consider that out of all the keys required to sign the descriptor, we only have some handful of assets.
+    // We can plan the PSBT with only few assets(keys or hashes) if that are enough for satisfying any policy.
+    //
+    // Here for example assume that we only have one key available i.e Key A(as seen from the descriptor above)
+    // Key A is enough to satisfy the given descriptor because it is OR.
+    // We have to add the key to `Asset` and then obtain plan with only available signature if  the descriptor can be satisfied.
     let mut assets = Assets::new();
     assets = assets.add(
         DescriptorPublicKey::from_str(
@@ -128,12 +150,14 @@ fn main() {
         .unwrap(),
     );
 
-    // Obtain the result of the plan based on provided assets
-    let result = bridge_descriptor.clone().get_plan(&assets);
+    // Obtain the Plan based on available Assets
+    let plan = bridge_descriptor.clone().get_plan(&assets).unwrap();
 
     // Creating a PSBT Input
     let mut input = psbt::Input::default();
-    result.unwrap().update_psbt_input(&mut input);
+
+    // Update the PSBT input from the result which we have obtained from the Plan.
+    plan.update_psbt_input(&mut input);
     input
         .update_with_descriptor_unchecked(&bridge_descriptor)
         .unwrap();
@@ -158,16 +182,11 @@ fn main() {
 
     // Finally construct the signature and add to psbt
     let sig1 = secp256k1.sign_ecdsa(&msg, &sk1);
-    let pk1 = backup1_private.public_key(&secp256k1);
-    assert!(secp256k1.verify_ecdsa(&msg, &sig1, &pk1.inner).is_ok());
-
-    // Second key just in case
-    let sig2 = secp256k1.sign_ecdsa(&msg, &sk2);
-    let pk2 = backup2_private.public_key(&secp256k1);
-    assert!(secp256k1.verify_ecdsa(&msg, &sig2, &pk2.inner).is_ok());
+    let key_a = backup1_private.public_key(&secp256k1);
+    assert!(secp256k1.verify_ecdsa(&msg, &sig1, &key_a.inner).is_ok());
 
     psbt.inputs[0].partial_sigs.insert(
-        pk1,
+        key_a,
         bitcoin::ecdsa::Signature {
             sig: sig1,
             hash_ty: hash_ty,

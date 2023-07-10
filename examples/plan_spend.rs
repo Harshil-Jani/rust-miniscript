@@ -29,7 +29,25 @@ fn main() {
         "023fc33527afab09fa97135f2180bcd22ce637b1d2fbcb2db748b1f2c33f45b2b4",
     ];
 
-    // Defining the taproot descriptor
+    // The taproot descriptor combines different spending paths and conditions, allowing the funds to be spent using
+    // different methods depending on the desired conditions.
+
+    // tr({A},{{pkh({B}),{{multi_a(1,{C},{D}),and_v(v:pk({E}),after(10))}}}}) represents a taproot spending policy.
+    // Let's break it down:
+    //
+    // * Key Spend Path
+    // {A} represents the public key for the taproot key spending path.
+    //
+    // * Script Spend Paths
+    // {B} represents the public key for the pay-to-pubkey-hash (P2PKH) spending path.
+    // The multi_a(1,{C},{D}) construct represents a 1-of-2 multi-signature script condition.
+    // It requires at least one signature from {C} and {D} to spend funds using the script spend path.
+    // The and_v(v:pk({E}),after(10)) construct represents a combination of a P2PK script condition and a time lock.
+    // It requires a valid signature from {E} and enforces a time lock of 10 blocks on spending funds.
+
+    // By constructing transactions using this taproot descriptor and signing them appropriately,
+    // you can create flexible spending policies that enable different spending paths and conditions depending on the
+    // transaction's inputs and outputs.
     let s = format!(
         "tr({},{{pkh({}),{{multi_a(1,{},{}),and_v(v:pk({}),after(10))}}}})",
         keys[0], keys[1], keys[2], keys[3], keys[4]
@@ -127,17 +145,24 @@ fn main() {
         value: amount * 4 / 5,
     });
 
-    // Plan the Transaction using available assets
+    // Consider that out of all the keys required to sign the descriptor spend path we only have some handful of assets.
+    // We can plan the PSBT with only few assets(keys or hashes) if that are enough for satisfying any policy.
+    //
+    // Here for example assume that we only have two keys available.
+    // Key A and Key B (as seen from the descriptor above)
+    // We have to add the keys to `Asset` and then obtain plan with only available signatures if  the descriptor can be satisfied.
     let mut assets = Assets::new();
-    assets = assets.add(DescriptorPublicKey::from_str(keys[0]).unwrap()); // Master Key for Key Spend Path
-    assets = assets.add(DescriptorPublicKey::from_str(keys[1]).unwrap()); // Script Spend Path
+    assets = assets.add(DescriptorPublicKey::from_str(keys[0]).unwrap()); // Master Key for Key Spend Path - Key A
+    assets = assets.add(DescriptorPublicKey::from_str(keys[1]).unwrap()); // Script Spend Path - Key B
 
-    // Obtain the result of the plan based on provided assets
-    let result = bridge_descriptor.clone().get_plan(&assets);
+    // Obtain the Plan based on available Assets
+    let plan = bridge_descriptor.clone().get_plan(&assets).unwrap();
 
     // Creating PSBT Input
     let mut input = psbt::Input::default();
-    result.unwrap().update_psbt_input(&mut input);
+    plan.update_psbt_input(&mut input);
+
+    // Update the PSBT input from the result which we have obtained from the Plan.
     input
         .update_with_descriptor_unchecked(&bridge_descriptor)
         .unwrap();
@@ -148,15 +173,13 @@ fn main() {
     psbt.outputs.push(psbt::Output::default());
 
     // Use private keys to sign
-    let sk1 = master_private_key.inner;
-    let sk2 = backup1_private.inner;
+    let key_a = master_private_key.inner;
+    let key_b = backup1_private.inner;
 
-    // In the following example we have signed the descriptor with master key
-    // which will allow the transaction to be key spend type.
-    // Any other key apart from master key is part of script policies and it
-    // will sign for script spend path if it satisfies.
-    sign_taproot_psbt(&sk1, &mut psbt, &secp256k1); // Key Spend
-    sign_taproot_psbt(&sk2, &mut psbt, &secp256k1); // Script Spend
+    // Taproot script can be signed when we have either Key spend or Script spend or both.
+    // Here you can try to verify by commenting one of the spend path or try signing with both.
+    sign_taproot_psbt(&key_a, &mut psbt, &secp256k1); // Key Spend - With Key A
+    sign_taproot_psbt(&key_b, &mut psbt, &secp256k1); // Script Spend - With Key B
 
     // Serializing and finalizing the PSBT Transaction
     let serialized = psbt.serialize();
