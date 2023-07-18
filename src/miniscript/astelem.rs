@@ -18,12 +18,13 @@ use sync::Arc;
 use crate::miniscript::context::SigType;
 use crate::miniscript::types::{self, Property};
 use crate::miniscript::ScriptContext;
-use crate::prelude::*;
+use crate::plan::Assets;
 use crate::util::MsKeyBuilder;
 use crate::{
     errstr, expression, script_num_size, AbsLockTime, Error, ForEachKey, Miniscript, MiniscriptKey,
     Terminal, ToPublicKey, TranslateErr, TranslatePk, Translator,
 };
+use crate::{prelude::*, DescriptorPublicKey};
 
 impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
     /// Internal helper function for displaying wrapper types; returns
@@ -246,6 +247,120 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
                     .collect();
                 Terminal::Thresh(*k, subs)
             }
+        }
+    }
+}
+
+impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
+    /// Retrieve the assets associated with the type of miniscript element.
+    pub fn get_assets(&self) -> Vec<Assets> {
+        match self {
+            Terminal::True => Vec::new(),
+            Terminal::False => Vec::new(),
+            Terminal::PkK(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::PkH(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::RawPkH(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::After(_) => Vec::new(),
+            Terminal::Older(_) => Vec::new(),
+            Terminal::Sha256(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Hash256(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Ripemd160(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Hash160(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Alt(k) => k.get_all_assets(),
+            Terminal::Swap(k) => k.get_all_assets(),
+            Terminal::Check(k) => k.get_all_assets(),
+            Terminal::DupIf(k) => k.get_all_assets(),
+            Terminal::Verify(k) => k.get_all_assets(),
+            Terminal::NonZero(k) => k.get_all_assets(),
+            Terminal::ZeroNotEqual(k) => k.get_all_assets(),
+            Terminal::AndV(left, right) => {
+                let a = left.get_all_assets(); 
+                let b = right.get_all_assets();
+                let result: Vec<Assets> = a
+                    .into_iter()
+                    .flat_map(|x| {
+                        b.clone().into_iter().map(move |y| {
+                            let mut new_asset = Assets::new();
+                            new_asset = new_asset.add(x.clone());
+                            new_asset = new_asset.add(y.clone());
+                            new_asset
+                        })
+                    })
+                    .collect();
+                result
+            }
+            Terminal::AndB(left, right) => {
+                let a = left.get_all_assets(); // 1,2
+                let b = right.get_all_assets(); // 3,4
+                let result: Vec<Assets> = a
+                    .into_iter()
+                    .flat_map(|x| {
+                        b.clone().into_iter().map(move |y| {
+                            let mut new_asset = Assets::new();
+                            new_asset = new_asset.add(x.clone());
+                            new_asset = new_asset.add(y.clone());
+                            new_asset
+                        })
+                    })
+                    .collect();
+                result
+            }
+            Terminal::AndOr(_, _, _) => Vec::new(),
+            Terminal::OrB(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::OrD(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::OrC(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::OrI(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::Thresh(_, _) => Vec::new(),
+            Terminal::Multi(_, _) => Vec::new(),
+            Terminal::MultiA(_, _) => Vec::new(),
         }
     }
 }

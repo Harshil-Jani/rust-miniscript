@@ -22,8 +22,9 @@ use bitcoin::taproot::{LeafVersion, TapLeafHash};
 
 use self::analyzable::ExtParams;
 pub use self::context::{BareCtx, Legacy, Segwitv0, Tap};
-use crate::prelude::*;
+use crate::plan::Assets;
 use crate::TranslateErr;
+use crate::{prelude::*, DescriptorPublicKey};
 
 pub mod analyzable;
 pub mod astelem;
@@ -341,6 +342,13 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Miniscript<Pk, Ctx> {
     /// Substitutes raw public keys hashes with the public keys as provided by map.
     pub fn substitute_raw_pkh(&self, pk_map: &BTreeMap<hash160::Hash, Pk>) -> Miniscript<Pk, Ctx> {
         Miniscript::from_ast(self.node.substitute_raw_pkh(pk_map)).expect("type check failed")
+    }
+}
+
+impl<Ctx: ScriptContext> Miniscript<DescriptorPublicKey, Ctx> {
+    /// Get all possible asset for a given node of Miniscript AST
+    pub fn get_all_assets(&self) -> Vec<Assets> {
+        self.node.get_assets()
     }
 }
 
