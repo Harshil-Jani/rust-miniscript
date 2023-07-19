@@ -23,7 +23,7 @@ use sync::Arc;
 
 use self::checksum::verify_checksum;
 use crate::miniscript::{satisfy, Legacy, Miniscript, Segwitv0};
-use crate::plan::{AssetProvider, Plan};
+use crate::plan::{AssetProvider, Assets, Plan};
 use crate::prelude::*;
 use crate::{
     expression, hash256, miniscript, BareCtx, Error, ForEachKey, MiniscriptKey, Satisfier,
@@ -975,6 +975,75 @@ impl_from_str!(
         Ok(desc)
     }
 );
+
+impl Descriptor<DescriptorPublicKey> {
+    /// Doc
+    pub fn get_all_assets(&self) -> Vec<Assets> {
+        match self {
+            Descriptor::Bare(k) => k.as_inner().get_all_assets(),
+            Descriptor::Pkh(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.as_inner().clone());
+                vec![asset]
+            }
+            Descriptor::Wpkh(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.as_inner().clone());
+                vec![asset]
+            }
+            Descriptor::Sh(k) => match k.as_inner() {
+                ShInner::Wsh(k) => match k.as_inner() {
+                    WshInner::SortedMulti(k) => {
+                        let keys = k.clone().pks;
+                        let mut asset = Assets::new();
+                        for key in keys {
+                            asset = asset.add(key)
+                        }
+                        vec![asset]
+                    }
+                    WshInner::Ms(k) => k.get_all_assets(),
+                },
+                ShInner::Wpkh(k) => {
+                    let mut asset = Assets::new();
+                    asset = asset.add(k.as_inner().clone());
+                    vec![asset]
+                }
+                ShInner::SortedMulti(k) => {
+                    let keys = k.clone().pks;
+                    let mut asset = Assets::new();
+                    for key in keys {
+                        asset = asset.add(key)
+                    }
+                    vec![asset]
+                }
+                ShInner::Ms(k) => k.get_all_assets(),
+            },
+            Descriptor::Wsh(k) => match k.as_inner() {
+                WshInner::SortedMulti(k) => {
+                    let keys = k.clone().pks;
+                    let mut asset = Assets::new();
+                    for key in keys {
+                        asset = asset.add(key)
+                    }
+                    vec![asset]
+                }
+                WshInner::Ms(k) => k.get_all_assets(),
+            },
+            Descriptor::Tr(k) => {
+                let s = k.taptree().clone().unwrap();
+                match s {
+                    TapTree::Tree(ref left, ref right) => {
+                        let mut a = left.get_all_assets();
+                        let b = right.get_all_assets();
+                        a.extend(b);
+                        a
+                    }
+                    TapTree::Leaf(k) => k.get_all_assets(),
+                }
+            }
+        }
+    }
+}
 
 impl<Pk: MiniscriptKey> fmt::Debug for Descriptor<Pk> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
