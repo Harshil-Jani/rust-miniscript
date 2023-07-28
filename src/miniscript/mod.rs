@@ -22,8 +22,9 @@ use bitcoin::taproot::{LeafVersion, TapLeafHash};
 
 use self::analyzable::ExtParams;
 pub use self::context::{BareCtx, Legacy, Segwitv0, Tap};
+use crate::plan::Assets;
 use crate::prelude::*;
-use crate::TranslateErr;
+use crate::{DescriptorPublicKey, TranslateErr};
 
 pub mod analyzable;
 pub mod astelem;
@@ -344,6 +345,18 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Miniscript<Pk, Ctx> {
     }
 }
 
+impl<Ctx: ScriptContext> Miniscript<DescriptorPublicKey, Ctx> {
+    /// Get all possible asset for a given node of Miniscript AST
+    pub fn get_all_assets(&self) -> Vec<Assets> {
+        self.node.get_assets()
+    }
+
+    /// Get the total number of assets possible
+    pub fn assets_count(&self) -> u64 {
+        self.node.count_assets()
+    }
+}
+
 impl_block_str!(
     ;Ctx; ScriptContext,
     Miniscript<Pk, Ctx>,
@@ -524,10 +537,11 @@ mod tests {
     use super::{Miniscript, ScriptContext, Segwitv0, Tap};
     use crate::miniscript::types::{self, ExtData, Property, Type};
     use crate::miniscript::Terminal;
+    use crate::plan::Assets;
     use crate::policy::Liftable;
     use crate::prelude::*;
     use crate::test_utils::{StrKeyTranslator, StrXOnlyKeyTranslator};
-    use crate::{hex_script, ExtParams, Satisfier, ToPublicKey, TranslatePk};
+    use crate::{hex_script, DescriptorPublicKey, ExtParams, Satisfier, ToPublicKey, TranslatePk};
 
     type Segwitv0Script = Miniscript<bitcoin::PublicKey, Segwitv0>;
     type Tapscript = Miniscript<bitcoin::secp256k1::XOnlyPublicKey, Tap>;
@@ -1290,6 +1304,129 @@ mod tests {
             }
             assert_eq!(template.absolute_timelock, absolute_timelock, "{}", ms_str);
             assert_eq!(template.relative_timelock, relative_timelock, "{}", ms_str);
+        }
+    }
+
+    #[test]
+    fn test_get_all_assets_and() {
+        let keys = vec![
+            "02638737cb676ca8851ac3e2c155e16cf9186d8d576e5670d76d49f8840113d078",
+            "02b33eeea5cd309376cf82914dce386f26459a07354add732069b90abd907674cb",
+            "02722c78fed469dd77df4a2c92c5bf4ddfa583fad30a1b7993488530d2d097393c",
+        ];
+        let ms = Miniscript::<DescriptorPublicKey, Segwitv0>::from_str(&format!(
+            "and_v(v:pk({}),pk({}))",
+            keys[0], keys[1]
+        ))
+        .unwrap();
+        let assets = ms.get_all_assets();
+        let mut expected_asset = Assets::new();
+        expected_asset = expected_asset.add(
+            DescriptorPublicKey::from_str(
+                "02638737cb676ca8851ac3e2c155e16cf9186d8d576e5670d76d49f8840113d078",
+            )
+            .unwrap(),
+        );
+        expected_asset = expected_asset.add(
+            DescriptorPublicKey::from_str(
+                "02b33eeea5cd309376cf82914dce386f26459a07354add732069b90abd907674cb",
+            )
+            .unwrap(),
+        );
+        assert_eq!(assets, vec![expected_asset]);
+    }
+
+    #[test]
+    fn test_get_all_assets_multi() {
+        let keys = vec![
+            "02638737cb676ca8851ac3e2c155e16cf9186d8d576e5670d76d49f8840113d078",
+            "02b33eeea5cd309376cf82914dce386f26459a07354add732069b90abd907674cb",
+            "02722c78fed469dd77df4a2c92c5bf4ddfa583fad30a1b7993488530d2d097393c",
+        ];
+        let ms = Miniscript::<DescriptorPublicKey, Segwitv0>::from_str(&format!(
+            "multi(2,{},{},{})",
+            keys[0], keys[1], keys[2]
+        ))
+        .unwrap();
+        let assets = ms.get_all_assets();
+        let mut expected_assets: Vec<Assets> = Vec::new();
+        let mut assets_1 = Assets::new();
+        assets_1 = assets_1.add(DescriptorPublicKey::from_str(keys[0]).unwrap()); // A
+        assets_1 = assets_1.add(DescriptorPublicKey::from_str(keys[1]).unwrap()); // B
+        expected_assets.push(assets_1);
+        let mut assets_2 = Assets::new();
+        assets_2 = assets_2.add(DescriptorPublicKey::from_str(keys[0]).unwrap()); // A
+        assets_2 = assets_2.add(DescriptorPublicKey::from_str(keys[2]).unwrap()); // C
+        expected_assets.push(assets_2);
+        let mut assets_3 = Assets::new();
+        assets_3 = assets_3.add(DescriptorPublicKey::from_str(keys[1]).unwrap()); // B
+        assets_3 = assets_3.add(DescriptorPublicKey::from_str(keys[2]).unwrap()); // C
+        expected_assets.push(assets_3);
+        for expected_asset in &expected_assets {
+            assert!(assets.contains(expected_asset));
+        }
+    }
+
+    #[test]
+    fn test_get_all_assets_or() {
+        let keys = vec![
+            "02638737cb676ca8851ac3e2c155e16cf9186d8d576e5670d76d49f8840113d078",
+            "02b33eeea5cd309376cf82914dce386f26459a07354add732069b90abd907674cb",
+        ];
+        let ms = Miniscript::<DescriptorPublicKey, Segwitv0>::from_str(&format!(
+            "or_b(pk({}),s:pk({}))",
+            keys[0], keys[1]
+        ))
+        .unwrap();
+        let assets = ms.get_all_assets();
+        let mut expected_assets: Vec<Assets> = Vec::new();
+        let mut asset1 = Assets::new();
+        asset1 = asset1.add(
+            DescriptorPublicKey::from_str(
+                "02638737cb676ca8851ac3e2c155e16cf9186d8d576e5670d76d49f8840113d078",
+            )
+            .unwrap(),
+        );
+        expected_assets.push(asset1);
+        let mut asset2 = Assets::new();
+        asset2 = asset2.add(
+            DescriptorPublicKey::from_str(
+                "02b33eeea5cd309376cf82914dce386f26459a07354add732069b90abd907674cb",
+            )
+            .unwrap(),
+        );
+        expected_assets.push(asset2);
+        assert_eq!(assets, expected_assets);
+    }
+
+    #[test]
+    fn test_get_all_assets_thresh() {
+        let keys = vec![
+            "02638737cb676ca8851ac3e2c155e16cf9186d8d576e5670d76d49f8840113d078",
+            "02b33eeea5cd309376cf82914dce386f26459a07354add732069b90abd907674cb",
+            "02722c78fed469dd77df4a2c92c5bf4ddfa583fad30a1b7993488530d2d097393c",
+        ];
+        let ms = Miniscript::<DescriptorPublicKey, Segwitv0>::from_str(&format!(
+            "thresh(2,pk({}),a:pk({}),a:pk({}))",
+            keys[0], keys[1], keys[2]
+        ))
+        .unwrap();
+        let assets = ms.get_all_assets();
+        let mut expected_assets: Vec<Assets> = Vec::new();
+        let mut assets_1 = Assets::new();
+        assets_1 = assets_1.add(DescriptorPublicKey::from_str(keys[0]).unwrap()); // A
+        assets_1 = assets_1.add(DescriptorPublicKey::from_str(keys[1]).unwrap()); // B
+        expected_assets.push(assets_1);
+        let mut assets_2 = Assets::new();
+        assets_2 = assets_2.add(DescriptorPublicKey::from_str(keys[0]).unwrap()); // A
+        assets_2 = assets_2.add(DescriptorPublicKey::from_str(keys[2]).unwrap()); // C
+        expected_assets.push(assets_2);
+        let mut assets_3 = Assets::new();
+        assets_3 = assets_3.add(DescriptorPublicKey::from_str(keys[1]).unwrap()); // B
+        assets_3 = assets_3.add(DescriptorPublicKey::from_str(keys[2]).unwrap()); // C
+        expected_assets.push(assets_3);
+        for expected_asset in &expected_assets {
+            assert!(assets.contains(expected_asset));
         }
     }
 }

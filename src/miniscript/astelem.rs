@@ -18,11 +18,12 @@ use sync::Arc;
 use crate::miniscript::context::SigType;
 use crate::miniscript::types::{self, Property};
 use crate::miniscript::ScriptContext;
+use crate::plan::Assets;
 use crate::prelude::*;
 use crate::util::MsKeyBuilder;
 use crate::{
-    errstr, expression, script_num_size, AbsLockTime, Error, ForEachKey, Miniscript, MiniscriptKey,
-    Terminal, ToPublicKey, TranslateErr, TranslatePk, Translator,
+    errstr, expression, script_num_size, AbsLockTime, DescriptorPublicKey, Error, ForEachKey,
+    Miniscript, MiniscriptKey, Terminal, ToPublicKey, TranslateErr, TranslatePk, Translator,
 };
 
 impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
@@ -247,6 +248,343 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
                 Terminal::Thresh(*k, subs)
             }
         }
+    }
+}
+
+impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
+    /// Count total possible assets
+    pub fn count_assets(&self) -> u64 {
+        match self {
+            Terminal::True => 0,
+            Terminal::False => 0,
+            Terminal::PkK(_) => 1,
+            Terminal::PkH(_) => 1,
+            Terminal::RawPkH(_) => 1,
+            // What happens to timelocks ? for both the assets and the count.
+            Terminal::After(_) => todo!(),
+            Terminal::Older(_) => todo!(),
+            Terminal::Sha256(_) => 1,
+            Terminal::Hash256(_) => 1,
+            Terminal::Ripemd160(_) => 1,
+            Terminal::Hash160(_) => 1,
+            Terminal::Alt(k) => k.assets_count(),
+            Terminal::Swap(k) => k.assets_count(),
+            Terminal::Check(k) => k.assets_count(),
+            Terminal::DupIf(k) => k.assets_count(),
+            Terminal::Verify(k) => k.assets_count(),
+            Terminal::NonZero(k) => k.assets_count(),
+            Terminal::ZeroNotEqual(k) => k.assets_count(),
+            Terminal::AndV(left, right) => {
+                let left_count = left.assets_count();
+                let right_count = right.assets_count();
+                left_count * right_count
+            }
+            Terminal::AndB(left, right) => {
+                let left_count = left.assets_count();
+                let right_count = right.assets_count();
+                left_count * right_count
+            }
+            Terminal::AndOr(a, b, c) => {
+                let a = a.assets_count();
+                let b = b.assets_count();
+                let c = c.assets_count();
+                (a*b)+c
+            },
+            Terminal::OrB(left, right) => {
+                let left_count = left.assets_count();
+                let right_count = right.assets_count();
+                left_count + right_count
+            }
+            Terminal::OrD(left, right) => {
+                let left_count = left.assets_count();
+                let right_count = right.assets_count();
+                left_count + right_count
+            }
+            Terminal::OrC(left, right) => {
+                let left_count = left.assets_count();
+                let right_count = right.assets_count();
+                left_count + right_count
+            }
+            Terminal::OrI(left, right) => {
+                let left_count = left.assets_count();
+                let right_count = right.assets_count();
+                left_count + right_count
+            }
+            Terminal::Thresh(k, ms_v) => {
+                // k = 2, n = ms_v.len()
+                // ms_v = [ms(A),ms(B),ms(C)];
+                // Assume count array as [5,7,8] and k=2
+                // get_combinations_product gives [5*7,5*8,7*8] = [35,40,56]
+                let mut count_array = Vec::new();
+                for ms in ms_v {
+                    count_array.push(ms.assets_count());
+                }
+                let products = Self::get_combinations_product(&count_array, *k as u64);
+                let mut total_count: u64 = 0;
+                for product in products {
+                    total_count += product;
+                }
+                total_count
+            }
+            Terminal::Multi(k, dpk) => {
+                let k: u64 = *k as u64;
+                let n: u64 = dpk.len() as u64;
+                Self::k_of_n(k, n)
+            }
+            Terminal::MultiA(k, dpk) => {
+                let k: u64 = *k as u64;
+                let n: u64 = dpk.len() as u64;
+                Self::k_of_n(k, n)
+            }
+        }
+    }
+
+    /// Retrieve the assets associated with the type of miniscript element.
+    pub fn get_assets(&self) -> Vec<Assets> {
+        match self {
+            Terminal::True => Vec::new(),
+            Terminal::False => Vec::new(),
+            Terminal::PkK(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::PkH(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::RawPkH(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::After(_) => Vec::new(),
+            Terminal::Older(_) => Vec::new(),
+            Terminal::Sha256(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Hash256(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Ripemd160(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Hash160(k) => {
+                let mut asset = Assets::new();
+                asset = asset.add(k.clone());
+                vec![asset]
+            }
+            Terminal::Alt(k) => k.get_all_assets(),
+            Terminal::Swap(k) => k.get_all_assets(),
+            Terminal::Check(k) => k.get_all_assets(),
+            Terminal::DupIf(k) => k.get_all_assets(),
+            Terminal::Verify(k) => k.get_all_assets(),
+            Terminal::NonZero(k) => k.get_all_assets(),
+            Terminal::ZeroNotEqual(k) => k.get_all_assets(),
+            Terminal::AndV(left, right) => {
+                let a = left.get_all_assets();
+                let b = right.get_all_assets();
+                let result: Vec<Assets> = a
+                    .into_iter()
+                    .flat_map(|x| {
+                        b.clone().into_iter().map(move |y| {
+                            let mut new_asset = Assets::new();
+                            new_asset = new_asset.add(x.clone());
+                            new_asset = new_asset.add(y.clone());
+                            new_asset
+                        })
+                    })
+                    .collect();
+                result
+            }
+            Terminal::AndB(left, right) => {
+                let a = left.get_all_assets(); // 1,2
+                let b = right.get_all_assets(); // 3,4
+                let result: Vec<Assets> = a
+                    .into_iter()
+                    .flat_map(|x| {
+                        b.clone().into_iter().map(move |y| {
+                            let mut new_asset = Assets::new();
+                            new_asset = new_asset.add(x.clone());
+                            new_asset = new_asset.add(y.clone());
+                            new_asset
+                        })
+                    })
+                    .collect();
+                result
+            }
+            Terminal::AndOr(a,b, c) => {
+                let a = a.get_all_assets();
+                let b = b.get_all_assets();
+                let mut c = c.get_all_assets();
+                let and: Vec<Assets> = a
+                    .into_iter()
+                    .flat_map(|x| {
+                        b.clone().into_iter().map(move |y| {
+                            let mut new_asset = Assets::new();
+                            new_asset = new_asset.add(x.clone());
+                            new_asset = new_asset.add(y.clone());
+                            new_asset
+                        })
+                    })
+                    .collect();
+                c.extend(and);
+                c
+            },
+            Terminal::OrB(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::OrD(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::OrC(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::OrI(left, right) => {
+                let mut a = left.get_all_assets();
+                let b = right.get_all_assets();
+                a.extend(b);
+                a
+            }
+            Terminal::Thresh(k, ms) => {
+                let ms_v = Self::get_asset_combination_thresh(*k, ms);
+                // k = 2
+                // ms = [ms(A),ms(B),ms(C)];
+                // ms_v = [[ms(A),ms(B)],[ms(A),ms(C)],[ms(B),ms(C)]]
+                // Do ms_v[0] OR ms_v[1] OR ms_v[2]
+                // Also Do ms_v[0][0] AND ms_v[0][1] and so on in the inner for loop
+
+                let mut result = Vec::new();
+                for ms in ms_v {
+                    let mut and: Vec<Assets> = Vec::new();
+                    if let Some(first_assets) = ms.first() {
+                        and = first_assets.get_all_assets().clone();
+                    }
+                    for i in ms.iter().skip(1) {
+                        let i_assets = i.get_all_assets();
+                        and = and
+                            .iter()
+                            .flat_map(|x| {
+                                i_assets.iter().map(move |y| {
+                                    let mut new_asset = x.clone();
+                                    new_asset = new_asset.add(y.clone());
+                                    new_asset
+                                })
+                            })
+                            .collect();
+                    }
+                    // OR of all combinations.
+                    result.extend(and.clone());
+                }
+                result
+            }
+            Terminal::Multi(k, dpk_v) => Self::get_asset_combination(*k, dpk_v),
+            Terminal::MultiA(k, dpk_v) => Self::get_asset_combination(*k, dpk_v),
+        }
+    }
+
+    fn get_asset_combination(k: usize, dpk_v: &Vec<DescriptorPublicKey>) -> Vec<Assets> {
+        let mut all_assets: Vec<Assets> = Vec::new();
+        let current_assets = Assets::new();
+        Self::combine_assets(k, dpk_v, 0, current_assets, &mut all_assets);
+        all_assets
+    }
+
+    fn combine_assets(
+        k: usize,
+        dpk_v: &[DescriptorPublicKey],
+        index: usize,
+        current_assets: Assets,
+        all_assets: &mut Vec<Assets>,
+    ) {
+        if k == 0 {
+            all_assets.push(current_assets);
+            return;
+        }
+        if index >= dpk_v.len() {
+            return;
+        }
+        Self::combine_assets(k, dpk_v, index + 1, current_assets.clone(), all_assets);
+        let mut new_asset = current_assets;
+        new_asset = new_asset.add(dpk_v[index].clone());
+        println!("{:#?}", new_asset);
+        Self::combine_assets(k - 1, dpk_v, index + 1, new_asset, all_assets)
+    }
+
+    fn get_asset_combination_thresh(
+        k: usize,
+        ms: &Vec<Arc<Miniscript<DescriptorPublicKey, Ctx>>>,
+    ) -> Vec<Vec<Arc<Miniscript<DescriptorPublicKey, Ctx>>>> {
+        let mut result = Vec::new();
+        let mut current_combination = Vec::new();
+        Self::combine_thresh(0, &mut current_combination, &mut result, ms, k);
+        result
+    }
+
+    fn combine_thresh(
+        start: usize,
+        current_combination: &mut Vec<Arc<Miniscript<DescriptorPublicKey, Ctx>>>,
+        result: &mut Vec<Vec<Arc<Miniscript<DescriptorPublicKey, Ctx>>>>,
+        ms: &Vec<Arc<Miniscript<DescriptorPublicKey, Ctx>>>,
+        k: usize,
+    ) {
+        if current_combination.len() == k {
+            result.push(current_combination.clone());
+            return;
+        }
+        for i in start..ms.len() {
+            current_combination.push(ms[i].clone());
+            Self::combine_thresh(i + 1, current_combination, result, ms, k);
+            current_combination.truncate(current_combination.len() - 1);
+        }
+    }
+
+    fn get_combinations_product(values: &[u64], k: u64) -> Vec<u64> {
+        let mut products = Vec::new();
+        let n = values.len();
+
+        if k == 0 {
+            return vec![1]; // Empty combination has a product of 1
+        }
+
+        // Using bitwise operations to generate combinations
+        let max_combinations = 1u32 << n;
+        for combination_bits in 1..max_combinations {
+            if combination_bits.count_ones() as usize == k as usize {
+                let mut product = 1;
+                for i in 0..n {
+                    if combination_bits & (1u32 << i) != 0 {
+                        product *= values[i];
+                    }
+                }
+                products.push(product);
+            }
+        }
+
+        products
+    }
+
+    fn k_of_n(k: u64, n: u64) -> u64 {
+        if k == 0 || k == n {
+            return 1;
+        }
+        Self::k_of_n(n - 1, k - 1) + Self::k_of_n(n - 1, k)
     }
 }
 
