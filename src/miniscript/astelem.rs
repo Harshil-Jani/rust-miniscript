@@ -284,7 +284,12 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
                 let right_count = right.assets_count();
                 left_count * right_count
             }
-            Terminal::AndOr(_, _, _) => todo!(),
+            Terminal::AndOr(a, b, c) => {
+                let a = a.assets_count();
+                let b = b.assets_count();
+                let c = c.assets_count();
+                (a*b)+c
+            },
             Terminal::OrB(left, right) => {
                 let left_count = left.assets_count();
                 let right_count = right.assets_count();
@@ -415,7 +420,24 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
                     .collect();
                 result
             }
-            Terminal::AndOr(_, _, _) => Vec::new(),
+            Terminal::AndOr(a,b, c) => {
+                let a = a.get_all_assets();
+                let b = b.get_all_assets();
+                let mut c = c.get_all_assets();
+                let and: Vec<Assets> = a
+                    .into_iter()
+                    .flat_map(|x| {
+                        b.clone().into_iter().map(move |y| {
+                            let mut new_asset = Assets::new();
+                            new_asset = new_asset.add(x.clone());
+                            new_asset = new_asset.add(y.clone());
+                            new_asset
+                        })
+                    })
+                    .collect();
+                c.extend(and);
+                c
+            },
             Terminal::OrB(left, right) => {
                 let mut a = left.get_all_assets();
                 let b = right.get_all_assets();
