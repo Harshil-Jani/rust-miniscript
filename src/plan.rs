@@ -463,7 +463,7 @@ impl TaprootAvailableLeaves {
 }
 
 /// The Assets we can use to satisfy a particular spending path
-#[derive(Debug, Default, Clone, PartialEq )]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Assets {
     /// Keys the user can sign for, and how
     pub keys: HashSet<(DescriptorPublicKey, CanSign)>,

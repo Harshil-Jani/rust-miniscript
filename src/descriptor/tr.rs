@@ -19,12 +19,12 @@ use crate::miniscript::Miniscript;
 use crate::plan::{AssetProvider, Assets};
 use crate::policy::semantic::Policy;
 use crate::policy::Liftable;
+use crate::prelude::*;
 use crate::util::{varint_len, witness_size};
 use crate::{
-    errstr, Error, ForEachKey, MiniscriptKey, Satisfier, ScriptContext, Tap, ToPublicKey,
-    TranslateErr, TranslatePk, Translator,
+    errstr, DescriptorPublicKey, Error, ForEachKey, MiniscriptKey, Satisfier, ScriptContext, Tap,
+    ToPublicKey, TranslateErr, TranslatePk, Translator,
 };
-use crate::{prelude::*, DescriptorPublicKey};
 
 /// A Taproot Tree representation.
 // Hidden leaves are not yet supported in descriptor spec. Conceptually, it should
@@ -121,8 +121,19 @@ impl TapTree<DescriptorPublicKey> {
                 a
             }
             TapTree::Leaf(k) => k.get_all_assets(),
-        };
-        Vec::new()
+        }
+    }
+
+    /// Doc
+    pub fn count_assets(&self) -> u64 {
+        match self {
+            TapTree::Tree(left, right) => {
+                let a = left.count_assets();
+                let b = right.count_assets();
+                a + b
+            }
+            TapTree::Leaf(k) => k.assets_count(),
+        }
     }
 }
 

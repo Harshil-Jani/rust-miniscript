@@ -23,8 +23,8 @@ use bitcoin::taproot::{LeafVersion, TapLeafHash};
 use self::analyzable::ExtParams;
 pub use self::context::{BareCtx, Legacy, Segwitv0, Tap};
 use crate::plan::Assets;
-use crate::TranslateErr;
-use crate::{prelude::*, DescriptorPublicKey};
+use crate::prelude::*;
+use crate::{DescriptorPublicKey, TranslateErr};
 
 pub mod analyzable;
 pub mod astelem;
@@ -350,6 +350,11 @@ impl<Ctx: ScriptContext> Miniscript<DescriptorPublicKey, Ctx> {
     pub fn get_all_assets(&self) -> Vec<Assets> {
         self.node.get_assets()
     }
+
+    /// Get the total number of assets possible
+    pub fn assets_count(&self) -> u64 {
+        self.node.count_assets()
+    }
 }
 
 impl_block_str!(
@@ -534,9 +539,9 @@ mod tests {
     use crate::miniscript::Terminal;
     use crate::plan::Assets;
     use crate::policy::Liftable;
+    use crate::prelude::*;
     use crate::test_utils::{StrKeyTranslator, StrXOnlyKeyTranslator};
-    use crate::{hex_script, ExtParams, Satisfier, ToPublicKey, TranslatePk};
-    use crate::{prelude::*, DescriptorPublicKey};
+    use crate::{hex_script, DescriptorPublicKey, ExtParams, Satisfier, ToPublicKey, TranslatePk};
 
     type Segwitv0Script = Miniscript<bitcoin::PublicKey, Segwitv0>;
     type Tapscript = Miniscript<bitcoin::secp256k1::XOnlyPublicKey, Tap>;

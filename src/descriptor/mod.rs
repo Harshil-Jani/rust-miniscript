@@ -978,47 +978,98 @@ impl_from_str!(
 
 impl Descriptor<DescriptorPublicKey> {
     /// Doc
-    pub fn get_all_assets(&self) -> Vec<Assets> {
+    pub fn count_assets(&self) -> u64 {
         match self {
-            Descriptor::Bare(k) => k.as_inner().get_all_assets(),
+            Descriptor::Bare(k) => k.as_inner().assets_count(),
+            Descriptor::Pkh(_) => 1,
+            Descriptor::Wpkh(_) => 1,
+            Descriptor::Sh(k) => match k.as_inner() {
+                ShInner::Wsh(k) => match k.as_inner() {
+                    WshInner::SortedMulti(k) => {
+                        let n = k.clone().pks.len() as u64;
+                        let k = k.clone().k as u64;
+                        Self::k_of_n(k, n)
+                    }
+                    WshInner::Ms(k) => k.assets_count(),
+                },
+                ShInner::Wpkh(_) => 1,
+                ShInner::SortedMulti(k) => {
+                    let n = k.clone().pks.len() as u64;
+                    let k = k.clone().k as u64;
+                    Self::k_of_n(k, n)
+                }
+                ShInner::Ms(k) => k.assets_count(),
+            },
+            Descriptor::Wsh(k) => match k.as_inner() {
+                WshInner::SortedMulti(k) => {
+                    let n = k.clone().pks.len() as u64;
+                    let k = k.clone().k as u64;
+                    Self::k_of_n(k, n)
+                }
+                WshInner::Ms(k) => k.assets_count(),
+            },
+            Descriptor::Tr(k) => {
+                let s = k.taptree().clone().unwrap();
+                match s {
+                    TapTree::Tree(ref left, ref right) => {
+                        let a = left.count_assets();
+                        let b = right.count_assets();
+                        a + b
+                    }
+                    TapTree::Leaf(k) => k.assets_count(),
+                }
+            }
+        }
+    }
+
+    /// Doc
+    pub fn get_all_assets(&self) -> Result<Vec<Assets>, Error> {
+        let threshold = self.count_assets();
+
+        if threshold >= 1000 {
+            return Err(Error::ThresholdExceeded);
+        }
+
+        match self {
+            Descriptor::Bare(k) => Ok(k.as_inner().get_all_assets()),
             Descriptor::Pkh(k) => {
                 let mut asset = Assets::new();
                 asset = asset.add(k.as_inner().clone());
-                vec![asset]
+                Ok(vec![asset])
             }
             Descriptor::Wpkh(k) => {
                 let mut asset = Assets::new();
                 asset = asset.add(k.as_inner().clone());
-                vec![asset]
+                Ok(vec![asset])
             }
             Descriptor::Sh(k) => match k.as_inner() {
                 ShInner::Wsh(k) => match k.as_inner() {
                     WshInner::SortedMulti(k) => {
                         let dpk_v = k.clone().pks;
                         let k = k.clone().k;
-                        Self::get_asset_combination(k, &dpk_v)
+                        Ok(Self::get_asset_combination(k, &dpk_v))
                     }
-                    WshInner::Ms(k) => k.get_all_assets(),
+                    WshInner::Ms(k) => Ok(k.get_all_assets()),
                 },
                 ShInner::Wpkh(k) => {
                     let mut asset = Assets::new();
                     asset = asset.add(k.as_inner().clone());
-                    vec![asset]
+                    Ok(vec![asset])
                 }
                 ShInner::SortedMulti(k) => {
                     let dpk_v = k.clone().pks;
                     let k = k.clone().k;
-                    Self::get_asset_combination(k, &dpk_v)
+                    Ok(Self::get_asset_combination(k, &dpk_v))
                 }
-                ShInner::Ms(k) => k.get_all_assets(),
+                ShInner::Ms(k) => Ok(k.get_all_assets()),
             },
             Descriptor::Wsh(k) => match k.as_inner() {
                 WshInner::SortedMulti(k) => {
                     let dpk_v = k.clone().pks;
                     let k = k.clone().k;
-                    Self::get_asset_combination(k, &dpk_v)
+                    Ok(Self::get_asset_combination(k, &dpk_v))
                 }
-                WshInner::Ms(k) => k.get_all_assets(),
+                WshInner::Ms(k) => Ok(k.get_all_assets()),
             },
             Descriptor::Tr(k) => {
                 let s = k.taptree().clone().unwrap();
@@ -1027,9 +1078,9 @@ impl Descriptor<DescriptorPublicKey> {
                         let mut a = left.get_all_assets();
                         let b = right.get_all_assets();
                         a.extend(b);
-                        a
+                        Ok(a)
                     }
-                    TapTree::Leaf(k) => k.get_all_assets(),
+                    TapTree::Leaf(k) => Ok(k.get_all_assets()),
                 }
             }
         }
@@ -1061,6 +1112,13 @@ impl Descriptor<DescriptorPublicKey> {
         new_asset = new_asset.add(dpk_v[index].clone());
         println!("{:#?}", new_asset);
         Self::combine_assets(k - 1, dpk_v, index + 1, new_asset, all_assets)
+    }
+
+    fn k_of_n(k: u64, n: u64) -> u64 {
+        if k == 0 || k == n {
+            return 1;
+        }
+        Self::k_of_n(n - 1, k - 1) + Self::k_of_n(n - 1, k)
     }
 }
 
@@ -2187,7 +2245,7 @@ pk(03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8))";
             "pk(0237b1c59ab055a8d3de40eaeb215c7b1922664b5ac049d849fb3346f81431e77f)",
         )
         .unwrap();
-        let assets = descriptor.get_all_assets();
+        let assets = descriptor.get_all_assets().unwrap();
         let mut expected_asset = Assets::new();
         expected_asset = expected_asset.add(
             DescriptorPublicKey::from_str(
@@ -2209,7 +2267,7 @@ pk(03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8))";
             keys[0], keys[1]
         ))
         .unwrap();
-        let assets = descriptor.get_all_assets();
+        let assets = descriptor.get_all_assets().unwrap();
 
         let mut expected_assets: Vec<Assets> = Vec::new();
         let mut asset1 = Assets::new();
@@ -2242,7 +2300,7 @@ pk(03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8))";
         .unwrap();
         let descriptor =
             Descriptor::from_str(&format!("tr({},pk({}))", x_only_key, x_only_key)).unwrap();
-        let assets = descriptor.get_all_assets();
+        let assets = descriptor.get_all_assets().unwrap();
         let mut expected_assets: Vec<Assets> = Vec::new();
         let mut asset_1 = Assets::new();
         asset_1 = asset_1.add(
