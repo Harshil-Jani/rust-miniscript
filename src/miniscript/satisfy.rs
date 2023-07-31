@@ -473,7 +473,13 @@ impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
     /// Replaces the placeholders with the information given by the satisfier
     pub fn satisfy_self<Sat: Satisfier<Pk>>(&self, sat: &Sat) -> Option<Vec<u8>> {
         match self {
-            Placeholder::Pubkey(pk, _) => Some(pk.to_public_key().to_bytes()),
+            Placeholder::Pubkey(pk, size) => {
+                if *size == 34 as usize {
+                    return Some(pk.to_public_key().to_bytes());
+                } else {
+                    return Some(pk.to_x_only_pubkey().serialize().to_vec());
+                }
+            }
             Placeholder::Hash256Preimage(h) => sat.lookup_hash256(h).map(|p| p.to_vec()),
             Placeholder::Sha256Preimage(h) => sat.lookup_sha256(h).map(|p| p.to_vec()),
             Placeholder::Hash160Preimage(h) => sat.lookup_hash160(h).map(|p| p.to_vec()),
