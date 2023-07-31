@@ -986,8 +986,8 @@ impl Descriptor<DescriptorPublicKey> {
             Descriptor::Sh(k) => match k.as_inner() {
                 ShInner::Wsh(k) => match k.as_inner() {
                     WshInner::SortedMulti(k) => {
-                        let n = k.clone().pks.len() as u64;
-                        let k = k.clone().k as u64;
+                        let n = k.pks.len() as u64;
+                        let k = k.k as u64;
                         Self::k_of_n(k, n)
                     }
                     WshInner::Ms(k) => k.assets_count(),
@@ -1027,7 +1027,7 @@ impl Descriptor<DescriptorPublicKey> {
         let threshold = self.count_assets();
 
         if threshold >= 1000 {
-            return Err(Error::ThresholdExceeded);
+            return Err(Error::MaxAssetThresholdExceeded);
         }
 
         match self {
