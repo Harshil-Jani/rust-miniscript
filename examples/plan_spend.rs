@@ -151,12 +151,11 @@ fn main() {
     // Here for example assume that we only have two keys available.
     // Key A and Key B (as seen from the descriptor above)
     // We have to add the keys to `Asset` and then obtain plan with only available signatures if  the descriptor can be satisfied.
-    let mut assets = Assets::new();
-    assets = assets.add(DescriptorPublicKey::from_str(keys[0]).unwrap()); // Master Key for Key Spend Path - Key A
-    assets = assets.add(DescriptorPublicKey::from_str(keys[1]).unwrap()); // Script Spend Path - Key B
+
+    let all_assets = Descriptor::<DescriptorPublicKey>::from_str(&s).unwrap().get_all_assets().unwrap();
 
     // Obtain the Plan based on available Assets
-    let plan = bridge_descriptor.clone().get_plan(&assets).unwrap();
+    let plan = bridge_descriptor.clone().get_plan(&all_assets[0]).unwrap();
 
     // Creating PSBT Input
     let mut input = psbt::Input::default();

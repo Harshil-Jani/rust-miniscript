@@ -261,8 +261,8 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
             Terminal::PkH(_) => 1,
             Terminal::RawPkH(_) => 1,
             // What happens to timelocks ? for both the assets and the count.
-            Terminal::After(_) => todo!(),
-            Terminal::Older(_) => todo!(),
+            Terminal::After(_) => 0,
+            Terminal::Older(_) => 0,
             Terminal::Sha256(_) => 1,
             Terminal::Hash256(_) => 1,
             Terminal::Ripemd160(_) => 1,
@@ -288,8 +288,8 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
                 let a = a.assets_count();
                 let b = b.assets_count();
                 let c = c.assets_count();
-                (a*b)+c
-            },
+                (a * b) + c
+            }
             Terminal::OrB(left, right) => {
                 let left_count = left.assets_count();
                 let right_count = right.assets_count();
@@ -342,7 +342,7 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
     /// Retrieve the assets associated with the type of miniscript element.
     pub fn get_assets(&self) -> Vec<Assets> {
         match self {
-            Terminal::True => Vec::new(),
+            Terminal::True => vec![Assets::new()],
             Terminal::False => Vec::new(),
             Terminal::PkK(k) => {
                 let mut asset = Assets::new();
@@ -359,8 +359,16 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
                 asset = asset.add(k.clone());
                 vec![asset]
             }
-            Terminal::After(_) => Vec::new(),
-            Terminal::Older(_) => Vec::new(),
+            Terminal::After(k) => {
+                let mut asset = Assets::new();
+                asset.absolute_timelock = Some(k.clone().into());
+                vec![asset]
+            },
+            Terminal::Older(k) => {
+                let mut asset = Assets::new();
+                asset.relative_timelock = Some(k.clone());
+                vec![asset]
+            },
             Terminal::Sha256(k) => {
                 let mut asset = Assets::new();
                 asset = asset.add(k.clone());
@@ -420,7 +428,7 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
                     .collect();
                 result
             }
-            Terminal::AndOr(a,b, c) => {
+            Terminal::AndOr(a, b, c) => {
                 let a = a.get_all_assets();
                 let b = b.get_all_assets();
                 let mut c = c.get_all_assets();
@@ -437,7 +445,7 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
                     .collect();
                 c.extend(and);
                 c
-            },
+            }
             Terminal::OrB(left, right) => {
                 let mut a = left.get_all_assets();
                 let b = right.get_all_assets();
@@ -584,7 +592,7 @@ impl<Ctx: ScriptContext> Terminal<DescriptorPublicKey, Ctx> {
         if k == 0 || k == n {
             return 1;
         }
-        Self::k_of_n(n - 1, k - 1) + Self::k_of_n(n - 1, k)
+        Self::k_of_n(k - 1, n - 1) + Self::k_of_n(k, n - 1)
     }
 }
 

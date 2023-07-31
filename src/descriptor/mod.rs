@@ -1069,7 +1069,12 @@ impl Descriptor<DescriptorPublicKey> {
                     let k = k.clone().k;
                     Ok(Self::get_asset_combination(k, &dpk_v))
                 }
-                WshInner::Ms(k) => Ok(k.get_all_assets()),
+                WshInner::Ms(k) => {
+                    println!("{}",k);
+                    let a = k.get_all_assets();
+                    println!("{:#?}",a);
+                    Ok(a)
+                },
             },
             Descriptor::Tr(k) => {
                 let s = k.taptree().clone().unwrap();

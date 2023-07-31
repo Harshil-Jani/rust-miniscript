@@ -35,7 +35,7 @@ fn main() {
     // you can create flexible spending policies that enable different spending paths and conditions depending on the
     // transaction's inputs and outputs.
     let s = format!(
-        "wsh(t:or_c(pk({}),v:thresh(1,pkh({}),a:pkh({}),a:pkh({}))))#7hut9ukn",
+        "wsh(t:or_c(pk({}),v:thresh(1,pkh({}),a:pkh({}),a:pkh({}))))",
         keys[0], keys[1], keys[2], keys[3]
     );
     let bridge_descriptor = Descriptor::from_str(&s).expect("parse descriptor string");
@@ -142,16 +142,9 @@ fn main() {
     // Here for example assume that we only have one key available i.e Key A(as seen from the descriptor above)
     // Key A is enough to satisfy the given descriptor because it is OR.
     // We have to add the key to `Asset` and then obtain plan with only available signature if  the descriptor can be satisfied.
-    let mut assets = Assets::new();
-    assets = assets.add(
-        DescriptorPublicKey::from_str(
-            "027a3565454fe1b749bccaef22aff72843a9c3efefd7b16ac54537a0c23f0ec0de",
-        )
-        .unwrap(),
-    );
-
+    let all_assets = Descriptor::<DescriptorPublicKey>::from_str(&s).unwrap().get_all_assets().unwrap();
     // Obtain the Plan based on available Assets
-    let plan = bridge_descriptor.clone().get_plan(&assets).unwrap();
+    let plan = bridge_descriptor.clone().get_plan(&all_assets[0]).unwrap();
 
     // Creating a PSBT Input
     let mut input = psbt::Input::default();

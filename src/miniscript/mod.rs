@@ -348,7 +348,11 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Miniscript<Pk, Ctx> {
 impl<Ctx: ScriptContext> Miniscript<DescriptorPublicKey, Ctx> {
     /// Get all possible asset for a given node of Miniscript AST
     pub fn get_all_assets(&self) -> Vec<Assets> {
-        self.node.get_assets()
+        let a = self.node.get_assets();
+        println!("{}",self);
+        println!("{:#?}",a.len());
+        // panic!("{:#?}",a);
+        a
     }
 
     /// Get the total number of assets possible
