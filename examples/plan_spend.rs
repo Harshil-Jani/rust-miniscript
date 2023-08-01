@@ -48,19 +48,20 @@ fn main() {
     // transaction's inputs and outputs.
     let s = format!(
         "tr({},{{pkh({}),{{multi_a(1,{},{}),and_v(v:pk({}),after(10))}}}})",
-        keys[0], keys[1], keys[2], keys[3], keys[4]
+        keys[0], // Key A
+        keys[1], // Key B
+        keys[2], // Key C
+        keys[3], // Key D
+        keys[4], // Key E
     );
 
-    let bridge_descriptor = Descriptor::from_str(&s).expect("parse descriptor string");
-    assert!(bridge_descriptor.sanity_check().is_ok());
+    let descriptor = Descriptor::from_str(&s).expect("parse descriptor string");
+    assert!(descriptor.sanity_check().is_ok());
 
+    println!("Descriptor pubkey script: {}", descriptor.script_pubkey());
     println!(
-        "Bridge pubkey script: {}",
-        bridge_descriptor.script_pubkey()
-    );
-    println!(
-        "Bridge address: {}",
-        bridge_descriptor.address(Network::Regtest).unwrap()
+        "Descriptor address: {}",
+        descriptor.address(Network::Regtest).unwrap()
     );
 
     let master_private_key_str = "KxQqtbUnMugSEbKHG3saknvVYux1cgFjFqWzMfwnFhLm8QrGq26v";
@@ -113,7 +114,7 @@ fn main() {
 
     let amount = 100000000;
 
-    let (outpoint, witness_utxo) = get_vout(&depo_tx, bridge_descriptor.script_pubkey());
+    let (outpoint, witness_utxo) = get_vout(&depo_tx, descriptor.script_pubkey());
 
     let all_assets = Descriptor::<DescriptorPublicKey>::from_str(&s)
         .unwrap()
@@ -145,7 +146,7 @@ fn main() {
         });
 
         psbt.unsigned_tx.output.push(TxOut {
-            script_pubkey: bridge_descriptor.script_pubkey(),
+            script_pubkey: descriptor.script_pubkey(),
             value: amount * 4 / 5,
         });
 
@@ -157,16 +158,14 @@ fn main() {
         // We have to add the keys to `Asset` and then obtain plan with only available signatures if  the descriptor can be satisfied.
 
         // Obtain the Plan based on available Assets
-        let plan = bridge_descriptor.clone().plan(&asset).unwrap();
+        let plan = descriptor.clone().plan(&asset).unwrap();
 
         // Creating PSBT Input
         let mut input = psbt::Input::default();
         plan.update_psbt_input(&mut input);
 
         // Update the PSBT input from the result which we have obtained from the Plan.
-        input
-            .update_with_descriptor_unchecked(&bridge_descriptor)
-            .unwrap();
+        input.update_with_descriptor_unchecked(&descriptor).unwrap();
         input.witness_utxo = Some(witness_utxo.clone());
 
         // Push the PSBT Input and declare an PSBT Output Structure
