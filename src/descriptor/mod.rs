@@ -617,6 +617,10 @@ impl Descriptor<DescriptorPublicKey> {
 
     /// Get all possible assets for a given descriptor
     pub fn all_assets(&self) -> Result<Vec<Assets>, Error> {
+        let threshold = self.count_assets();
+        if threshold >= 1000 {
+            return Err(Error::MaxAssetThresholdExceeded);
+        }
         match self {
             Descriptor::Bare(k) => Ok(k.as_inner().all_assets()),
             Descriptor::Pkh(k) => {
