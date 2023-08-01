@@ -163,7 +163,7 @@ impl TapTree<DescriptorPublicKey> {
     }
 
     /// Get total possible assets for TapTree
-    pub fn count_assets(&self) -> u64 {
+    pub fn count_assets(&self) -> u32 {
         match self {
             TapTree::Tree(left, right) => {
                 let a = left.count_assets();

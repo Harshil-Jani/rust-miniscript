@@ -412,7 +412,7 @@ impl<Ctx: ScriptContext> Miniscript<DescriptorPublicKey, Ctx> {
     }
 
     /// Get the total number of assets possible
-    pub fn count_assets(&self) -> u64 {
+    pub fn count_assets(&self) -> u32 {
         self.node.count_assets()
     }
 }
