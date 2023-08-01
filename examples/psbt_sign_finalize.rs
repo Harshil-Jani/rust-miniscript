@@ -10,7 +10,6 @@ use miniscript::bitcoin::psbt::PartiallySignedTransaction as Psbt;
 use miniscript::bitcoin::{
     self, psbt, secp256k1, Address, Network, OutPoint, Script, Sequence, Transaction, TxIn, TxOut,
 };
-use miniscript::plan::Assets;
 use miniscript::psbt::{PsbtExt, PsbtInputExt};
 use miniscript::{Descriptor, DescriptorPublicKey};
 
@@ -97,17 +96,6 @@ fn main() {
         output: vec![],
     };
 
-    // Spend one input and spend one output for simplicity.
-    let mut psbt = Psbt {
-        unsigned_tx: spend_tx,
-        unknown: BTreeMap::new(),
-        proprietary: BTreeMap::new(),
-        xpub: BTreeMap::new(),
-        version: 0,
-        inputs: vec![],
-        outputs: vec![],
-    };
-
     let hex_tx = "020000000001018ff27041f3d738f5f84fd5ee62f1c5b36afebfb15f6da0c9d1382ddd0eaaa23c0000000000feffffff02b3884703010000001600142ca3b4e53f17991582d47b15a053b3201891df5200e1f50500000000220020c0ebf552acd2a6f5dee4e067daaef17b3521e283aeaa44a475278617e3d2238a0247304402207b820860a9d425833f729775880b0ed59dd12b64b9a3d1ab677e27e4d6b370700220576003163f8420fe0b9dc8df726cff22cbc191104a2d4ae4f9dfedb087fcec72012103817e1da42a7701df4db94db8576f0e3605f3ab3701608b7e56f92321e4d8999100000000";
     let depo_tx: Transaction = deserialize(&Vec::<u8>::from_hex(hex_tx).unwrap()).unwrap();
 
@@ -119,83 +107,99 @@ fn main() {
 
     let (outpoint, witness_utxo) = get_vout(&depo_tx, &bridge_descriptor.script_pubkey());
 
-    // Defining the Transaction Input
-    let mut txin = TxIn::default();
-    txin.previous_output = outpoint;
-    txin.sequence = Sequence::from_height(26); //Sequence::MAX; //
-    psbt.unsigned_tx.input.push(txin);
-
-    // Defining the Transaction Output
-    psbt.unsigned_tx.output.push(TxOut {
-        script_pubkey: receiver.script_pubkey(),
-        value: amount / 5 - 500,
-    });
-
-    psbt.unsigned_tx.output.push(TxOut {
-        script_pubkey: bridge_descriptor.script_pubkey(),
-        value: amount * 4 / 5,
-    });
-
-    // Consider that out of all the keys required to sign the descriptor, we only have some handful of assets.
-    // We can plan the PSBT with only few assets(keys or hashes) if that are enough for satisfying any policy.
-    //
-    // Here for example assume that we only have one key available i.e Key A(as seen from the descriptor above)
-    // Key A is enough to satisfy the given descriptor because it is OR.
-    // We have to add the key to `Asset` and then obtain plan with only available signature if  the descriptor can be satisfied.
-    let all_assets = Descriptor::<DescriptorPublicKey>::from_str(&s).unwrap().get_all_assets().unwrap();
-    // Obtain the Plan based on available Assets
-    let plan = bridge_descriptor.clone().get_plan(&all_assets[0]).unwrap();
-
-    // Creating a PSBT Input
-    let mut input = psbt::Input::default();
-
-    // Update the PSBT input from the result which we have obtained from the Plan.
-    plan.update_psbt_input(&mut input);
-    input
-        .update_with_descriptor_unchecked(&bridge_descriptor)
-        .unwrap();
-    input.witness_utxo = Some(witness_utxo.clone());
-
-    // Push the PSBT Input and declare an PSBT Output Structure
-    psbt.inputs.push(input);
-    psbt.outputs.push(psbt::Output::default());
-
-    let mut sighash_cache = SighashCache::new(&psbt.unsigned_tx);
-
-    let msg = psbt
-        .sighash_msg(0, &mut sighash_cache, None)
+    let all_assets = Descriptor::<DescriptorPublicKey>::from_str(&s)
         .unwrap()
-        .to_secp_msg();
+        .get_all_assets()
+        .unwrap();
 
-    // Fixme: Take a parameter
-    let hash_ty = bitcoin::sighash::EcdsaSighashType::All;
+    for asset in all_assets {
+        // Spend one input and spend one output for simplicity.
+        let mut psbt = Psbt {
+            unsigned_tx: spend_tx.clone(),
+            unknown: BTreeMap::new(),
+            proprietary: BTreeMap::new(),
+            xpub: BTreeMap::new(),
+            version: 0,
+            inputs: vec![],
+            outputs: vec![],
+        };
 
-    let sk1 = backup1_private.inner;
-    let sk2 = backup2_private.inner;
+        // Defining the Transaction Input
+        let mut txin = TxIn::default();
+        txin.previous_output = outpoint;
+        txin.sequence = Sequence::from_height(26); //Sequence::MAX; //
+        psbt.unsigned_tx.input.push(txin);
 
-    // Finally construct the signature and add to psbt
-    let sig1 = secp256k1.sign_ecdsa(&msg, &sk1);
-    let key_a = backup1_private.public_key(&secp256k1);
-    assert!(secp256k1.verify_ecdsa(&msg, &sig1, &key_a.inner).is_ok());
+        // Defining the Transaction Output
+        psbt.unsigned_tx.output.push(TxOut {
+            script_pubkey: receiver.script_pubkey(),
+            value: amount / 5 - 500,
+        });
 
-    psbt.inputs[0].partial_sigs.insert(
-        key_a,
-        bitcoin::ecdsa::Signature {
-            sig: sig1,
-            hash_ty: hash_ty,
-        },
-    );
+        psbt.unsigned_tx.output.push(TxOut {
+            script_pubkey: bridge_descriptor.script_pubkey(),
+            value: amount * 4 / 5,
+        });
 
-    println!("{:#?}", psbt);
+        // Consider that out of all the keys required to sign the descriptor, we only have some handful of assets.
+        // We can plan the PSBT with only few assets(keys or hashes) if that are enough for satisfying any policy.
+        //
+        // Here for example assume that we only have one key available i.e Key A(as seen from the descriptor above)
+        // Key A is enough to satisfy the given descriptor because it is OR.
+        // We have to add the key to `Asset` and then obtain plan with only available signature if  the descriptor can be satisfied.
 
-    let serialized = psbt.serialize();
-    println!("{}", base64::encode(&serialized));
+        // Check the possible asset which we can use
+        println!("{:#?}", asset);
 
-    psbt.finalize_mut(&secp256k1).unwrap();
-    println!("{:#?}", psbt);
+        // Obtain the Plan based on available Assets
+        let plan = bridge_descriptor.clone().get_plan(&asset).unwrap();
 
-    let tx = psbt.extract_tx();
-    println!("{}", bitcoin::consensus::encode::serialize_hex(&tx));
+        // Creating a PSBT Input
+        let mut input = psbt::Input::default();
+
+        // Update the PSBT input from the result which we have obtained from the Plan.
+        plan.update_psbt_input(&mut input);
+        input
+            .update_with_descriptor_unchecked(&bridge_descriptor)
+            .unwrap();
+        input.witness_utxo = Some(witness_utxo.clone());
+
+        // Push the PSBT Input and declare an PSBT Output Structure
+        psbt.inputs.push(input);
+        psbt.outputs.push(psbt::Output::default());
+
+        let mut sighash_cache = SighashCache::new(&psbt.unsigned_tx);
+
+        let msg = psbt
+            .sighash_msg(0, &mut sighash_cache, None)
+            .unwrap()
+            .to_secp_msg();
+
+        // Fixme: Take a parameter
+        let hash_ty = bitcoin::sighash::EcdsaSighashType::All;
+
+        let sk = backup1_private.inner;
+
+        // Finally construct the signature and add to psbt
+        let sig = secp256k1.sign_ecdsa(&msg, &sk);
+        let key_a = backup1_private.public_key(&secp256k1);
+        assert!(secp256k1.verify_ecdsa(&msg, &sig, &key_a.inner).is_ok());
+
+        psbt.inputs[0]
+            .partial_sigs
+            .insert(key_a, bitcoin::ecdsa::Signature { sig, hash_ty });
+
+        println!("{:#?}", psbt);
+
+        let serialized = psbt.serialize();
+        println!("{}", base64::encode(&serialized));
+
+        psbt.finalize_mut(&secp256k1).unwrap();
+        println!("{:#?}", psbt);
+
+        let tx = psbt.extract_tx();
+        println!("{}", bitcoin::consensus::encode::serialize_hex(&tx));
+    }
 }
 
 // Find the Outpoint by spk

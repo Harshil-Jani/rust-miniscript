@@ -13,7 +13,6 @@ use miniscript::bitcoin::hashes::hex::FromHex;
 use miniscript::bitcoin::{
     self, secp256k1, Address, Network, OutPoint, Sequence, Transaction, TxIn, TxOut,
 };
-use miniscript::plan::Assets;
 use miniscript::psbt::{PsbtExt, PsbtInputExt};
 use miniscript::{Descriptor, DescriptorPublicKey};
 use secp256k1::Secp256k1;
@@ -108,17 +107,6 @@ fn main() {
         output: vec![],
     };
 
-    // Creating a PSBT Object
-    let mut psbt = Psbt {
-        unsigned_tx: spend_tx,
-        unknown: BTreeMap::new(),
-        proprietary: BTreeMap::new(),
-        xpub: BTreeMap::new(),
-        version: 0,
-        inputs: vec![],
-        outputs: vec![],
-    };
-
     let hex_tx = "020000000001018ff27041f3d738f5f84fd5ee62f1c5b36afebfb15f6da0c9d1382ddd0eaaa23c0000000000feffffff02b3884703010000001600142ca3b4e53f17991582d47b15a053b3201891df5200e1f5050000000022512061763f4288d086c0347c4e3c387ce22ab9372cecada6c326e77efd57e9a5ea460247304402207b820860a9d425833f729775880b0ed59dd12b64b9a3d1ab677e27e4d6b370700220576003163f8420fe0b9dc8df726cff22cbc191104a2d4ae4f9dfedb087fcec72012103817e1da42a7701df4db94db8576f0e3605f3ab3701608b7e56f92321e4d8999100000000";
     let depo_tx: Transaction = deserialize(&Vec::<u8>::from_hex(hex_tx).unwrap()).unwrap();
 
@@ -128,65 +116,81 @@ fn main() {
 
     let (outpoint, witness_utxo) = get_vout(&depo_tx, bridge_descriptor.script_pubkey());
 
-    // Defining the Transaction Input
-    let mut txin = TxIn::default();
-    txin.previous_output = outpoint;
-    txin.sequence = Sequence::from_height(26); //Sequence::MAX; //
-    psbt.unsigned_tx.input.push(txin);
-
-    // Defining the Transaction Output
-    psbt.unsigned_tx.output.push(TxOut {
-        script_pubkey: receiver.payload.script_pubkey(),
-        value: amount / 5 - 500,
-    });
-
-    psbt.unsigned_tx.output.push(TxOut {
-        script_pubkey: bridge_descriptor.script_pubkey(),
-        value: amount * 4 / 5,
-    });
-
-    // Consider that out of all the keys required to sign the descriptor spend path we only have some handful of assets.
-    // We can plan the PSBT with only few assets(keys or hashes) if that are enough for satisfying any policy.
-    //
-    // Here for example assume that we only have two keys available.
-    // Key A and Key B (as seen from the descriptor above)
-    // We have to add the keys to `Asset` and then obtain plan with only available signatures if  the descriptor can be satisfied.
-
-    let all_assets = Descriptor::<DescriptorPublicKey>::from_str(&s).unwrap().get_all_assets().unwrap();
-
-    // Obtain the Plan based on available Assets
-    let plan = bridge_descriptor.clone().get_plan(&all_assets[0]).unwrap();
-
-    // Creating PSBT Input
-    let mut input = psbt::Input::default();
-    plan.update_psbt_input(&mut input);
-
-    // Update the PSBT input from the result which we have obtained from the Plan.
-    input
-        .update_with_descriptor_unchecked(&bridge_descriptor)
+    let all_assets = Descriptor::<DescriptorPublicKey>::from_str(&s)
+        .unwrap()
+        .get_all_assets()
         .unwrap();
-    input.witness_utxo = Some(witness_utxo.clone());
 
-    // Push the PSBT Input and declare an PSBT Output Structure
-    psbt.inputs.push(input);
-    psbt.outputs.push(psbt::Output::default());
+    for asset in all_assets {
+        // Creating a PSBT Object
+        let mut psbt = Psbt {
+            unsigned_tx: spend_tx.clone(),
+            unknown: BTreeMap::new(),
+            proprietary: BTreeMap::new(),
+            xpub: BTreeMap::new(),
+            version: 0,
+            inputs: vec![],
+            outputs: vec![],
+        };
 
-    // Use private keys to sign
-    let key_a = master_private_key.inner;
-    let key_b = backup1_private.inner;
+        // Defining the Transaction Input
+        let mut txin = TxIn::default();
+        txin.previous_output = outpoint;
+        txin.sequence = Sequence::from_height(26); //Sequence::MAX; //
+        psbt.unsigned_tx.input.push(txin);
 
-    // Taproot script can be signed when we have either Key spend or Script spend or both.
-    // Here you can try to verify by commenting one of the spend path or try signing with both.
-    sign_taproot_psbt(&key_a, &mut psbt, &secp256k1); // Key Spend - With Key A
-    sign_taproot_psbt(&key_b, &mut psbt, &secp256k1); // Script Spend - With Key B
+        // Defining the Transaction Output
+        psbt.unsigned_tx.output.push(TxOut {
+            script_pubkey: receiver.payload.script_pubkey(),
+            value: amount / 5 - 500,
+        });
 
-    // Serializing and finalizing the PSBT Transaction
-    let serialized = psbt.serialize();
-    println!("{}", base64::encode(&serialized));
-    psbt.finalize_mut(&secp256k1).unwrap();
+        psbt.unsigned_tx.output.push(TxOut {
+            script_pubkey: bridge_descriptor.script_pubkey(),
+            value: amount * 4 / 5,
+        });
 
-    let tx = psbt.extract_tx();
-    println!("{}", bitcoin::consensus::encode::serialize_hex(&tx));
+        // Consider that out of all the keys required to sign the descriptor spend path we only have some handful of assets.
+        // We can plan the PSBT with only few assets(keys or hashes) if that are enough for satisfying any policy.
+        //
+        // Here for example assume that we only have two keys available.
+        // Key A and Key B (as seen from the descriptor above)
+        // We have to add the keys to `Asset` and then obtain plan with only available signatures if  the descriptor can be satisfied.
+
+        // Obtain the Plan based on available Assets
+        let plan = bridge_descriptor.clone().get_plan(&asset).unwrap();
+
+        // Creating PSBT Input
+        let mut input = psbt::Input::default();
+        plan.update_psbt_input(&mut input);
+
+        // Update the PSBT input from the result which we have obtained from the Plan.
+        input
+            .update_with_descriptor_unchecked(&bridge_descriptor)
+            .unwrap();
+        input.witness_utxo = Some(witness_utxo.clone());
+
+        // Push the PSBT Input and declare an PSBT Output Structure
+        psbt.inputs.push(input);
+        psbt.outputs.push(psbt::Output::default());
+
+        // Use private keys to sign
+        let key_a = master_private_key.inner;
+        let key_b = backup1_private.inner;
+
+        // Taproot script can be signed when we have either Key spend or Script spend or both.
+        // Here you can try to verify by commenting one of the spend path or try signing with both.
+        sign_taproot_psbt(&key_a, &mut psbt, &secp256k1); // Key Spend - With Key A
+        sign_taproot_psbt(&key_b, &mut psbt, &secp256k1); // Script Spend - With Key B
+
+        // Serializing and finalizing the PSBT Transaction
+        let serialized = psbt.serialize();
+        println!("{}", base64::encode(&serialized));
+        psbt.finalize_mut(&secp256k1).unwrap();
+
+        let tx = psbt.extract_tx();
+        println!("{}", bitcoin::consensus::encode::serialize_hex(&tx));
+    }
 }
 
 // Siging the Taproot PSBT Transaction
